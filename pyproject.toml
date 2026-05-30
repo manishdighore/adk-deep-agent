@@ -1,0 +1,76 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "adk-deep-agent"
+version = "0.1.0"
+description = "Opinionated deep-agent assembly layer for Google ADK."
+readme = { file = "README.md", content-type = "text/markdown" }
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+  { name = "Manish Dighore" },
+]
+keywords = [
+  "adk",
+  "agent-development-kit",
+  "agents",
+  "ai-agents",
+  "deep-agent",
+  "google-adk",
+  "llm",
+  "multi-agent",
+  "task-delegation",
+  "subagents",
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Typing :: Typed",
+]
+dependencies = [
+  "google-adk>=2.1.0,<3",
+  "google-genai>=1.72,<2",
+  "pydantic>=2.12,<3",
+]
+
+[project.urls]
+Homepage = "https://github.com/manishdighore/adk-deep-agent"
+Documentation = "https://github.com/manishdighore/adk-deep-agent#readme"
+Repository = "https://github.com/manishdighore/adk-deep-agent"
+Issues = "https://github.com/manishdighore/adk-deep-agent/issues"
+Changelog = "https://github.com/manishdighore/adk-deep-agent/blob/main/CHANGELOG.md"
+
+[project.optional-dependencies]
+dev = [
+  "build>=1.2",
+  "pytest>=8",
+  "pytest-asyncio>=1.3",
+  "twine>=6",
+]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["adk_deep_agent*"]
+
+[tool.setuptools.package-data]
+adk_deep_agent = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

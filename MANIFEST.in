@@ -1,0 +1,14 @@
+include LICENSE
+include README.md
+include CHANGELOG.md
+include pyproject.toml
+include src/adk_deep_agent/py.typed
+
+recursive-include examples *.py
+recursive-include tests *.py
+recursive-include docs *.md
+recursive-include docs/assets *.svg
+
+global-exclude __pycache__
+global-exclude *.py[cod]
+global-exclude .DS_Store
