@@ -13,13 +13,13 @@
   <a href="https://pypi.org/project/adk-deep-agent/"><img alt="Python versions" src="https://img.shields.io/pypi/pyversions/adk-deep-agent.svg"></a>
   <a href="https://github.com/manishdighore/adk-deep-agent/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/manishdighore/adk-deep-agent/actions/workflows/ci.yml/badge.svg"></a>
   <a href="https://github.com/manishdighore/adk-deep-agent/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
-  <a href="https://github.com/google/adk-python"><img alt="Google ADK" src="https://img.shields.io/badge/Google%20ADK-2.1%2B-4285F4.svg"></a>
+  <a href="https://github.com/google/adk-python"><img alt="Google ADK" src="https://img.shields.io/badge/Google%20ADK-2.2%2B-4285F4.svg"></a>
 </p>
 
 `adk-deep-agent` is a small Python package that creates a standard
 `google.adk.apps.App` with deep-agent capabilities pre-wired: a task ledger,
-context injection, thinking, compaction, skills, prebuilt subagents, and
-on-demand spawned subagents.
+context injection, structured user elicitation, thinking, compaction, skills,
+prebuilt subagents, and model-aware on-demand spawned subagents.
 
 The package does not replace ADK. It stays close to ADK's own `App`,
 `LlmAgent`, `ToolContext`, `Runner`, `SkillToolset`, and event-stream
@@ -30,12 +30,14 @@ primitives.
 - **Standard ADK return value**: `create_deep_agent(...)` returns a normal ADK `App`.
 - **Built-in task ledger**: a session-backed `todo` tool for planning and progress tracking.
 - **Automatic ledger context**: active todos are injected before model calls.
+- **Structured elicitation**: optional native ADK `request_input` interruption with UI helpers.
 - **Thinking support**: simple wrapper over ADK `BuiltInPlanner`.
 - **Native compaction**: optional ADK event compaction with a deep-agent summary prompt.
 - **Tool flexibility**: accepts ADK `ToolUnion` values, including functions, `BaseTool`, `BaseToolset`, and MCP toolsets.
 - **Skills**: accepts one developer-created ADK `SkillToolset`.
 - **Prebuilt subagents**: attaches native ADK `sub_agents`.
-- **On-demand subagents**: exposes `spawn_subagent`, backed by ADK `ToolContext.run_node(...)`.
+- **Model-aware subagents**: exposes a validated model catalog to `spawn_subagent`.
+- **On-demand subagents**: runs temporary children through ADK `ToolContext.run_node(...)`.
 - **Streaming visibility**: raw ADK runner events include subagent activity; optional projection helpers are included.
 
 ## Installation
@@ -53,7 +55,7 @@ uv add adk-deep-agent
 Requirements:
 
 - Python 3.10+
-- `google-adk>=2.1.0,<3`
+- `google-adk>=2.2.0,<3`
 
 ## Quick Start
 
@@ -115,6 +117,48 @@ app = create_deep_agent(
 ```
 
 `model_client` can be a model name string or an ADK `BaseLlm` instance.
+
+## Structured User Elicitation
+
+Set `elicitation=True` to attach ADK's native `request_input` long-running
+tool and enable resumability on the returned `App`.
+
+```python
+app = create_deep_agent(
+    name="interactive_agent",
+    model_client="gemini-3-flash-preview",
+    instruction="Ask for required decisions before taking irreversible action.",
+    elicitation=True,
+)
+```
+
+The model can request one or more answers with an object JSON schema. When the
+runner emits the interruption, project it into a stable UI-facing request:
+
+```python
+from adk_deep_agent import (
+    create_elicitation_response,
+    project_elicitation_event,
+)
+
+request = project_elicitation_event(event)
+if request is not None:
+    # Render request.message and request.response_schema in the client.
+    answers = {"environment": "production", "strategy": "canary"}
+    response = create_elicitation_response(request, answers)
+
+    async for resumed_event in runner.run_async(
+        user_id=user_id,
+        session_id=session_id,
+        invocation_id=request.invocation_id,
+        new_message=response,
+    ):
+        ...
+```
+
+While waiting, ADK makes no additional model call. The response helper creates
+the user-role `FunctionResponse` with the original function-call ID so the
+same invocation can continue.
 
 ## Task Ledger
 
@@ -232,7 +276,7 @@ runtime. Spawned children are still ADK agents and run through
 `ToolContext.run_node(...)`.
 
 ```python
-from adk_deep_agent import SpawnConfig, create_deep_agent
+from adk_deep_agent import ModelSpec, SpawnConfig, create_deep_agent
 
 
 def inspect_code(path: str) -> str:
@@ -245,6 +289,19 @@ app = create_deep_agent(
     name="main_agent",
     model_client="gemini-3-flash-preview",
     instruction="Spawn temporary specialists for bounded tasks.",
+    available_models=[
+        ModelSpec(
+            id="fast",
+            model_client="gemini-3-flash-preview",
+            description="Fast general-purpose delegated work.",
+        ),
+        ModelSpec(
+            id="strong",
+            model_client="gemini-3-pro-preview",
+            description="Difficult reasoning and review work.",
+            capabilities=["reasoning", "review"],
+        ),
+    ],
     spawn=SpawnConfig(
         enabled=True,
         tools={"inspect_code": inspect_code},
@@ -253,6 +310,10 @@ app = create_deep_agent(
     ),
 )
 ```
+
+The root instruction receives only model IDs and descriptive metadata. The
+backend registry retains the actual model clients. `spawn_subagent` accepts an
+optional `model` ID, defaults to the root model, and rejects unknown IDs.
 
 Spawned `task` agents are temporary foreground workers. If one needs user
 clarification, the tool returns `status="waiting_for_user"` so the parent can
@@ -282,6 +343,7 @@ Numbered examples live in `examples/sdk`:
 - `02_skills_and_toolsets.py`
 - `03_thinking_compaction_plugins.py`
 - `04_prebuilt_and_spawned_subagents.py`
+- `05_elicitation_and_model_selection.py`
 
 ## GitHub Topics
 

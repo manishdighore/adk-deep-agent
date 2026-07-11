@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Added opt-in native ADK `request_input` elicitation with resumability.
+- Added stable elicitation event projection and response construction helpers.
+- Added explicit model catalogs and validated model selection for spawned agents.
+- Raised the minimum ADK version to 2.2 and aligned `google-genai` with ADK 2.x.
+
 ## 0.1.0 - 2026-05-30
 
 Initial publishable package release.

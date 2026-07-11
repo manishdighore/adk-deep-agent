@@ -1,9 +1,9 @@
 # ADK Deep Agent: Implementation Plan
 
-Status: Phase 1 implemented; Phase 2 implemented  
+Status: Phase 1, Phase 2, and elicitation/model-selection additions implemented
 Target package: `adk-deep-agent`  
 Python package: `adk_deep_agent`  
-Date: 2026-05-30
+Updated: 2026-07-12
 
 This document specifies the ADK implementation work. Architecture comparisons and broader feature decisions remain in `ADK-DEEP-AGENT.md`.
 
@@ -43,6 +43,10 @@ The created app includes:
 6. Optional native thinking configuration through ADK `BuiltInPlanner`.
 7. Optional native ADK event compaction with a structured summarizer.
 8. Caller-supplied ADK app plugins.
+9. Optional native ADK structured user elicitation and resumability.
+10. A stable elicitation request projection and response helper for clients.
+11. An explicit model catalog injected into root-agent context when spawning is enabled.
+12. Validated per-spawn model selection.
 
 ## Phase 1 Scope
 
@@ -84,6 +88,10 @@ def create_deep_agent(
     thinking: bool | ThinkingConfig = False,
     compaction: CompactionConfig | None = None,
     plugins: Sequence[BasePlugin] = (),
+    subagents: Sequence[SubAgentSpec] = (),
+    spawn: SpawnConfig | None = None,
+    elicitation: bool = False,
+    available_models: Sequence[str | ModelSpec] = (),
 ) -> App:
     ...
 ```
@@ -118,6 +126,8 @@ class CompactionConfig(BaseModel):
 | `compaction=None` | Do not configure native event compaction |
 | `compaction=CompactionConfig(...)` | Build native `EventsCompactionConfig` and summarizer |
 | `plugins` | Pass into `App.plugins` unchanged |
+| `elicitation=True` | Attach ADK `request_input`, append schema guidance, and enable resumability |
+| `available_models` | Build the model registry used by root context and spawned-agent validation |
 
 ### Tools Input
 
@@ -615,6 +625,8 @@ examples/
 | Compaction | Factory supports native token-threshold event compaction with structured summarization |
 | Plugin API | Caller plugins pass through as app-level ADK plugins |
 | Tests | Unit and integration tests cover factory, skills, ledger, callback, thinking, and compaction behavior |
+| Elicitation | Interruption projects to a UI request and resumes with the matching function response |
+| Spawn model | Registered model IDs select their configured clients; unknown IDs are rejected |
 
 ## Phase 2 Plan: Subagents
 
@@ -724,6 +736,7 @@ async def spawn_subagent(
     tool_names: list[str] | None = None,
     skill_names: list[str] | None = None,
     mode: Literal["single_turn", "task"] | None = None,
+    model: str | None = None,
     tool_context: ToolContext = ...,
 ) -> dict:
     ...
@@ -734,7 +747,7 @@ The tool behavior:
 1. Validate the requested `name` as an ADK-compatible agent name.
 2. Resolve requested tools and skills from developer-owned spawn registries.
 3. Validate requested tools and skills against developer-owned allowlists.
-4. Build a temporary `LlmAgent` using the root model client unless overridden by package policy.
+4. Resolve `model` from the developer-owned model registry, defaulting to the root model.
 5. Add only resolved allowed tools and skills to the temporary agent.
 6. Use `mode or spawn.default_mode`.
 7. Run the temporary child through:
@@ -829,11 +842,44 @@ class SubagentEvent(BaseModel):
 | Task delegation | Root agent can call an explicitly configured `task` child and resume after completion or user wait |
 | Spawn tool | Root agent receives `spawn_subagent` only when spawn is enabled |
 | Spawn validation | Unknown tools, unknown skills, invalid names, and disallowed recursion are rejected |
+| Model validation | Unknown model IDs are rejected before child construction |
 | Dynamic execution | Spawned child runs through `ToolContext.run_node(...)` and returns a structured result |
 | Spawned task wait | Spawned task children that ask the user return `waiting_for_user` rather than `completed` |
 | State | Root and child can access shared session state while package-owned config remains protected |
 | Streaming | SDK helper can project child start/tool/result/complete events from native ADK runner events |
 | Tests | Unit and integration tests cover prebuilt and spawned subagent paths |
+
+## Implemented Addition: Elicitation and Model Selection
+
+The factory now accepts:
+
+```python
+def create_deep_agent(
+    ...,
+    elicitation: bool = False,
+    available_models: Sequence[str | ModelSpec] = (),
+) -> App:
+    ...
+```
+
+`elicitation=True` attaches ADK's native `request_input` tool and creates a
+resumable `App`. `project_elicitation_event(...)` exposes the message, response
+schema, call ID, author, and invocation ID. `create_elicitation_response(...)`
+returns the matching user-role function response expected by `Runner`.
+
+`ModelSpec` separates the public model ID and descriptive context from the
+backend `str | BaseLlm` client. The generated root instruction contains the
+allowed catalog when spawning is enabled. The spawn tool accepts an optional
+`model` argument, resolves it through that registry, reports the selected ID in
+its result, and rejects unknown values.
+
+Acceptance coverage includes:
+
+1. No second model call before an elicitation response is supplied.
+2. Structured object answers resume the same invocation.
+3. Elicitation remains opt-in and enables resumability.
+4. Spawned children execute with the selected registered model client.
+5. Unknown model IDs return a structured spawn error.
 
 ## ADK Source References
 

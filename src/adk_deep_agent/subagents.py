@@ -16,14 +16,16 @@ from google.genai import types
 
 from .config import SpawnConfig
 from .config import SubAgentSpec
+from .models import ModelSpec
 
 SPAWN_TOOL_NAME = "spawn_subagent"
 
 SPAWN_TOOL_GUIDANCE = """You have a built-in `spawn_subagent` tool for focused delegated work.
 
 Use it when a temporary specialist should handle a bounded task with explicit
-goal, context, and allowed tools or skills. Spawned subagents are foreground
-workers: wait for their result before finalizing your answer.
+goal, context, model, and allowed tools or skills. Select only a model from the
+available model catalog. Spawned subagents are foreground workers: wait for
+their result before finalizing your answer.
 """
 
 
@@ -149,7 +151,8 @@ def _last_text_from_child_events(events: Sequence[Any]) -> str | None:
 def create_spawn_subagent_tool(
     *,
     root_name: str,
-    model_client: str | BaseLlm,
+    default_model_id: str,
+    model_registry: Mapping[str, ModelSpec],
     config: SpawnConfig,
     tool_registry: Mapping[str, ToolUnion],
     skill_registry: Mapping[str, SkillToolset],
@@ -164,6 +167,7 @@ def create_spawn_subagent_tool(
         tool_names: list[str] | None = None,
         skill_names: list[str] | None = None,
         mode: str | None = None,
+        model: str | None = None,
         tool_context: ToolContext | None = None,
     ) -> dict[str, Any]:
         """Spawn a temporary ADK subagent for focused delegated work.
@@ -175,6 +179,7 @@ def create_spawn_subagent_tool(
             tool_names: Allowed tool names to provide to the child.
             skill_names: Allowed skill toolset names to provide to the child.
             mode: `single_turn` or `task`; defaults to package configuration.
+            model: Allowed model ID; defaults to the root agent's model.
             tool_context: ADK tool context injected by the runtime.
         """
 
@@ -206,6 +211,13 @@ def create_spawn_subagent_tool(
             if child_mode not in {"single_turn", "task"}:
                 raise ValueError("mode must be `single_turn` or `task`")
 
+            selected_model_id = (model or default_model_id).strip()
+            if selected_model_id not in model_registry:
+                raise ValueError(f"unknown model: {selected_model_id}")
+            selected_model = model_registry[selected_model_id].model_client
+            if selected_model is None:
+                raise ValueError(f"model has no configured client: {selected_model_id}")
+
             child_tools: list[ToolUnion] = [
                 tool_registry[name] for name in selected_tools
             ]
@@ -213,7 +225,7 @@ def create_spawn_subagent_tool(
 
             child = Agent(
                 name=child_name,
-                model=model_client,
+                model=selected_model,
                 instruction=_build_spawn_instruction(
                     name=child_name,
                     goal=goal,
@@ -239,12 +251,14 @@ def create_spawn_subagent_tool(
                     "status": "waiting_for_user",
                     "name": child_name,
                     "mode": child_mode,
+                    "model": selected_model_id,
                     "message": _last_text_from_child_events(child_events),
                 }
             return {
                 "status": "completed",
                 "name": child_name,
                 "mode": child_mode,
+                "model": selected_model_id,
                 "result": result,
             }
         except Exception as exc:

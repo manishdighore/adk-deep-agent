@@ -1,9 +1,9 @@
 # ADK Deep Agent: Conceptual Design and Pattern Selection
 
-Status: Design for review  
+Status: Living design; core, subagent, elicitation, and model-selection phases implemented
 Target package: `adk-deep-agent`  
 Python package: `adk_deep_agent`  
-Date: 2026-05-27
+Updated: 2026-07-12
 
 ## Purpose
 
@@ -59,13 +59,15 @@ The guiding hybrid is:
 | Agent loop | LangGraph agent assembled with middleware | Custom `AIAgent` loop | Use native `App` plus `Runner`; build no loop |
 | Planning | Explicit task-plan updates through built-in `write_todos` and instruction guidance | Explicit task-plan updates through compact `todo` tool; reasoning is separate | Use built-in todo ledger for external planning; keep native thinking separate |
 | Todo tracking | `TodoListMiddleware` with `write_todos` | Single compact `todo` tool | Built-in `todo` tool stored in ADK session state |
-| Subagent delegation | Ephemeral `task` subgraphs | Blocking `delegate_task` children | Native `single_turn`/`task` children in a later phase |
+| Subagent delegation | Ephemeral `task` subgraphs | Blocking `delegate_task` children | Native implemented `single_turn`/`task` children |
 | Background subagents | Remote Agent Protocol task tools | No equivalent durable job contract found | Separate future service, potentially A2A backed |
 | Subagent streaming | Typed child run streams | Progress callback relay and live tree status | Project ADK `Event` data without replacing it |
 | Context compaction | Summarization middleware and compact tool | Custom compressor with todo reinjection | Native app event compaction plus ledger reinjection |
 | Hooks | LangChain middleware | Python and shell hooks | Agent callbacks for local behavior; plugins for global behavior |
 | Skills | Middleware over skill sources | Prompt-indexed skill catalog and skill tools | Accept one developer-created ADK `SkillToolset` |
 | Thinking | Model/middleware dependent | Provider reasoning configuration | Native ADK `BuiltInPlanner` configuration |
+| Structured elicitation | Interrupt/approval middleware | Blocking `clarify` callback with UI request/response IDs | Native ADK `request_input`, resumable invocation, and matching `FunctionResponse` |
+| Spawn model selection | Model profiles supplied to delegated agents | Child model/provider configuration | Explicit validated model registry exposed as instruction context |
 
 ## 1. Agent Loop and Runtime Ownership
 
@@ -688,7 +690,40 @@ When supplied, translate it to `BuiltInPlanner`. Avoid a generic
 `thinking=True` shorthand until provider-specific behavior is intentionally
 defined and tested.
 
-## 11. Guardrails and Additional Patterns
+## 11. Structured Elicitation and Model-Aware Spawning
+
+### Structured Elicitation
+
+Use ADK's native `request_input` tool instead of introducing a package-owned
+blocking callback or custom interruption runtime. The feature is opt-in because
+clients must render the request and return a structured response.
+
+When enabled, the package:
+
+1. Attaches ADK's `request_input` long-running tool to the root agent.
+2. Adds JSON Schema guidance for grouped questions, options, booleans,
+   multi-select values, and required fields.
+3. Enables ADK app resumability.
+4. Projects the `adk_request_input` event into `ElicitationRequest` for UI code.
+5. Builds the matching user-role `FunctionResponse` while retaining the
+   original function-call and invocation IDs.
+
+No model call runs while the request is waiting. The next model call happens
+only after the client resumes the interrupted invocation.
+
+### Model-Aware Spawning
+
+ADK configures the root agent's model but does not automatically expose a
+provider's complete model inventory to the LLM. Accept an explicit
+`available_models` list and build one backend registry from it. Inject only
+public IDs, descriptions, and capabilities into root instruction context.
+Keep model clients and credentials in the backend registry.
+
+`spawn_subagent` accepts an optional model ID, defaults to the root model, and
+rejects IDs outside the registry. Context and execution therefore share the
+same source of truth.
+
+## 12. Guardrails and Additional Patterns
 
 The comparison surfaces valuable patterns outside the first focused feature
 set:
@@ -696,7 +731,7 @@ set:
 | Pattern | Deep Agents signal | Hermes signal | Recommendation |
 | --- | --- | --- | --- |
 | Child least privilege | Per-subagent tools and filesystem permissions | Blocked child tools and leaf defaults | Require explicit child tools and restrict recursive delegation when subagents are added |
-| Human approval | `HumanInTheLoopMiddleware` for selected tools | Approval hooks and safe child auto-deny behavior | Design as a future ADK policy/plugin capability |
+| Human approval | `HumanInTheLoopMiddleware` for selected tools | Approval hooks and safe child auto-deny behavior | Keep approval policy separate from implemented information elicitation |
 | Concurrency control | Concurrent independent `task` calls encouraged | Explicit maximum child count | Define a concurrency policy before supporting parent-driven parallel child work |
 | Cancellation and timeout | Background cancel tool for remote tasks | Child timeout, heartbeat, and interruption | Require these contracts for future background work |
 | Result isolation | Parent gets child final message/result | Parent gets concise summary | Use native ADK task isolation; do not leak child working history into parent reasoning |
@@ -710,7 +745,7 @@ expand Phase 1. The first package surface should remain small and native to
 ADK; subagent and background-job releases should adopt guardrails at the same
 time as the execution feature rather than adding unsafe delegation first.
 
-## 12. Conceptual Package Boundary
+## 13. Conceptual Package Boundary
 
 ### Built Into the First Focused Surface
 
@@ -723,14 +758,15 @@ time as the execution feature rather than adding unsafe delegation first.
 | Skills | Optional single developer-created ADK `SkillToolset` |
 | Compaction | Optional native ADK event compaction with structured summaries |
 | Extensions | Caller-supplied application-wide ADK plugins |
+| Focused subagents | Native ADK prebuilt and on-demand `single_turn`/`task` children |
+| Nested progress projection | Stable projection over raw ADK subagent events |
+| Structured elicitation | Native ADK `request_input` with resumable UI request/response helpers |
+| Model selection | Explicit model registry and validated spawned-agent model choice |
 
 ### Designed Here, Implemented Later
 
 | Capability | Preferred pattern |
 | --- | --- |
-| Focused subagents | Native ADK `single_turn` children with Hermes-style restrictions |
-| Interactive delegated tasks | Native ADK `task` children as explicit opt-in |
-| Nested progress projection | Stable projection over raw ADK events |
 | Background subagents | Deep Agents-style job tools over an ADK-aligned durable executor |
 | Advanced guardrails | Timeouts, cancellation, budgets, approvals, and explicit child policies |
 
@@ -745,7 +781,7 @@ time as the execution feature rather than adding unsafe delegation first.
 5. Treat a compaction summary as authoritative todo state.
 6. Expose private ADK internal fields as stable public package contracts.
 
-## 13. Selected Decisions
+## 14. Selected Decisions
 
 | Design concern | Selected direction |
 | --- | --- |
@@ -760,8 +796,12 @@ time as the execution feature rather than adding unsafe delegation first.
 | Thinking input | Explicit native config; no unqualified boolean enablement |
 | Compaction | Native token-threshold-first ADK event compaction |
 | Plugins | Caller-owned application-wide ADK plugins |
-| Focused future delegation | Native ADK `single_turn`/`task` children |
+| Focused delegation | Native ADK `single_turn`/`task` children |
 | True background work | Separate future durable task contract |
+| User elicitation | Native ADK `request_input`; no package-owned blocking loop |
+| Elicitation resume | Matching user-role `FunctionResponse` and retained invocation ID |
+| Spawn model inventory | Explicit developer-provided registry; no per-call provider discovery |
+| Spawn model validation | Tool execution validates against the same catalog shown to the root model |
 
 ## Source Index
 

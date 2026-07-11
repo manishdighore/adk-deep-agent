@@ -8,10 +8,12 @@ from google.adk.agents import Agent
 from google.adk.agents.llm_agent import ToolUnion
 from google.adk.apps import App
 from google.adk.apps.app import EventsCompactionConfig
+from google.adk.apps.app import ResumabilityConfig
 from google.adk.apps.llm_event_summarizer import LlmEventSummarizer
 from google.adk.models import BaseLlm
 from google.adk.planners import BuiltInPlanner
 from google.adk.plugins.base_plugin import BasePlugin
+from google.adk.tools import request_input
 from google.adk.tools.skill_toolset import SkillToolset
 from google.genai import types
 
@@ -21,6 +23,10 @@ from .config import CompactionConfig
 from .config import SpawnConfig
 from .config import SubAgentSpec
 from .config import ThinkingConfig
+from .elicitation import ELICITATION_TOOL_GUIDANCE
+from .models import ModelSpec
+from .models import build_model_registry
+from .models import format_model_catalog
 from .subagents import SPAWN_TOOL_GUIDANCE
 from .subagents import build_prebuilt_subagent
 from .subagents import build_tool_registry
@@ -57,10 +63,16 @@ def _build_instruction(
     instruction: str,
     *,
     include_spawn_guidance: bool = False,
+    include_elicitation_guidance: bool = False,
+    model_catalog: str | None = None,
 ) -> str:
     guidance = [LEDGER_TOOL_GUIDANCE.strip()]
     if include_spawn_guidance:
         guidance.append(SPAWN_TOOL_GUIDANCE.strip())
+    if include_elicitation_guidance:
+        guidance.append(ELICITATION_TOOL_GUIDANCE.strip())
+    if model_catalog:
+        guidance.append(model_catalog.strip())
     return f"{instruction.rstrip()}\n\n" + "\n\n".join(guidance)
 
 
@@ -112,6 +124,8 @@ def create_deep_agent(
     plugins: Sequence[BasePlugin] = (),
     subagents: Sequence[SubAgentSpec] = (),
     spawn: SpawnConfig | None = None,
+    elicitation: bool = False,
+    available_models: Sequence[str | ModelSpec] = (),
 ) -> App:
     """Create a standard ADK App with deep-agent behavior."""
 
@@ -120,6 +134,10 @@ def create_deep_agent(
         root_tools.append(skills)
 
     spawn_config = normalize_spawn_config(spawn)
+    default_model_id, model_registry = build_model_registry(
+        default_model_client=model_client,
+        available_models=available_models,
+    )
     child_agents = [
         build_prebuilt_subagent(
             spec,
@@ -139,13 +157,17 @@ def create_deep_agent(
         root_tools.append(
             create_spawn_subagent_tool(
                 root_name=name,
-                model_client=model_client,
+                default_model_id=default_model_id,
+                model_registry=model_registry,
                 config=spawn_config,
                 tool_registry=tool_registry,
                 skill_registry=spawn_config.skills,
                 reserved_names=reserved_names,
             )
         )
+
+    if elicitation:
+        root_tools.append(request_input)
 
     root_tools.append(create_todo_tool())
 
@@ -155,6 +177,15 @@ def create_deep_agent(
         instruction=_build_instruction(
             instruction,
             include_spawn_guidance=spawn_config is not None,
+            include_elicitation_guidance=elicitation,
+            model_catalog=(
+                format_model_catalog(
+                    model_registry,
+                    default_model_id=default_model_id,
+                )
+                if spawn_config is not None
+                else None
+            ),
         ),
         description=description,
         tools=root_tools,
@@ -168,5 +199,8 @@ def create_deep_agent(
         name=name,
         root_agent=root_agent,
         plugins=list(plugins),
+        resumability_config=(
+            ResumabilityConfig(is_resumable=True) if elicitation else None
+        ),
         events_compaction_config=_build_compaction_config(compaction, root_agent),
     )

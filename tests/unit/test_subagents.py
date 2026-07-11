@@ -6,6 +6,7 @@ from typing import Any
 import pytest
 
 from adk_deep_agent import SpawnConfig
+from adk_deep_agent import ModelSpec
 from adk_deep_agent import SubAgentSpec
 from adk_deep_agent import create_deep_agent
 from adk_deep_agent import iter_subagent_events
@@ -229,6 +230,84 @@ async def test_spawned_single_turn_child_raw_events_are_streamed() -> None:
         root_agent_name="root",
         child_agent_names=["temp_researcher"],
     )
+
+
+@pytest.mark.asyncio
+async def test_spawned_child_can_select_a_registered_model() -> None:
+    child_model = FakeModel(responses=["selected model child done"])
+    root_model = FakeModel(
+        responses=[
+            _function_call(
+                SPAWN_TOOL_NAME,
+                {
+                    "name": "specialist",
+                    "goal": "Handle difficult work.",
+                    "model": "strong",
+                },
+            ),
+            "root done",
+        ]
+    )
+    app = create_deep_agent(
+        name="root",
+        model_client=root_model,
+        instruction="Help.",
+        spawn=SpawnConfig(enabled=True),
+        available_models=[
+            ModelSpec(
+                id="strong",
+                model_client=child_model,
+                description="Use for difficult reasoning.",
+            )
+        ],
+    )
+
+    events = await _run_app(app)
+
+    assert child_model.response_index == 1
+    responses = [
+        response.response
+        for event in events
+        for response in event.get_function_responses()
+        if response.name == SPAWN_TOOL_NAME
+    ]
+    assert responses[0]["status"] == "completed"
+    assert responses[0]["model"] == "strong"
+    assert "`strong` - Use for difficult reasoning." in app.root_agent.instruction
+
+
+@pytest.mark.asyncio
+async def test_spawn_tool_rejects_unknown_model() -> None:
+    root_model = FakeModel(
+        responses=[
+            _function_call(
+                SPAWN_TOOL_NAME,
+                {
+                    "name": "specialist",
+                    "goal": "Work.",
+                    "model": "missing",
+                },
+            ),
+            "root done",
+        ]
+    )
+    app = create_deep_agent(
+        name="root",
+        model_client=root_model,
+        instruction="Help.",
+        spawn=SpawnConfig(enabled=True),
+    )
+
+    events = await _run_app(app)
+
+    responses = [
+        response.response
+        for event in events
+        for response in event.get_function_responses()
+        if response.name == SPAWN_TOOL_NAME
+    ]
+    assert responses[0]["status"] == "error"
+    assert responses[0]["error"] == "unknown model: missing"
 
 
 @pytest.mark.asyncio
