@@ -146,16 +146,57 @@ def create_deep_agent(
     sandbox: SandboxKind | SandboxConfig | BaseEnvironment | None = None,
     context_cache: bool | ContextCacheConfig | None = None,
 ) -> App:
-    """Create a standard ADK App with deep-agent behavior.
+    """Create a standard ADK `App` with deep-agent behavior pre-wired.
+
+    The returned `App` always includes the built-in `todo` task ledger, active
+    ledger injection before each root model request, and `ToolCallRepairPlugin`.
+    Everything else is opt-in. Run the `App` with any ADK `Runner` and the
+    session, artifact, and memory services your application chooses.
 
     Args:
+        name: Root agent and App name. Must be a valid Python identifier and
+            cannot be `user`.
+        model_client: Root model. A model name string or any ADK `BaseLlm`,
+            such as `LiteLlm`.
+        instruction: Root agent instruction. Package guidance for the enabled
+            features is appended to it.
+        description: Optional root agent description.
+        tools: Tools for the root agent: functions, ADK `BaseTool` or
+            `BaseToolset` values, including MCP toolsets.
+        skills: One ADK `SkillToolset` for the root agent.
+        thinking: `True`, `False`, or a `ThinkingConfig`; mapped to ADK's
+            `BuiltInPlanner`.
+        compaction: Optional `CompactionConfig` enabling ADK event compaction
+            with a summary prompt written for long-running work.
+        plugins: Additional ADK plugins for the App. `ToolCallRepairPlugin` is
+            always installed first.
+        subagents: Prebuilt children declared with `SubAgentSpec`, attached as
+            native ADK `sub_agents`.
+        spawn: `SpawnConfig(enabled=True, ...)` adds the `spawn_subagent` tool so
+            the root agent can create temporary children at runtime, in the
+            foreground or in the background.
+        elicitation: Add ADK's `request_input` tool to the root agent and make
+            the App resumable, for structured questions to the user.
+        available_models: Models a spawned child may select, as IDs or
+            `ModelSpec` values. The root model is always included as the
+            default. Only IDs and descriptions reach the model.
         sandbox: Optional workspace for shell and file tools. Accepts a backend
             name (`local`, `daytona`, `e2b`, `cloud_run`), a `SandboxConfig`, or
             a preconstructed ADK `BaseEnvironment`. Filesystem backends attach
             ADK's `EnvironmentToolset`; `cloud_run` attaches ADK's Cloud Run
             sandbox code executor instead. Credentials are preflighted here.
+            One environment is created per App and shared by all its sessions.
         context_cache: Optional ADK context caching. `True` uses ADK defaults;
             pass an ADK `ContextCacheConfig` to tune intervals and TTL.
+
+    Returns:
+        A standard `google.adk.apps.App`.
+
+    Raises:
+        ValueError: For invalid or duplicate agent names, or a subagent that
+            requests a sandbox when none is configured.
+        SandboxConfigurationError: When a selected sandbox backend is missing
+            credentials or packages.
     """
 
     root_tools: list[ToolUnion] = [*tools]

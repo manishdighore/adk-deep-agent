@@ -4,6 +4,8 @@
 
 - Renamed the package to `adk-agent-harness` (import name `adk_agent_harness`).
   Package-owned session state keys now use the `adk_agent_harness:` prefix.
+- Added a documentation site with guides for every feature and an API
+  reference generated from docstrings, published to GitHub Pages.
 - Added opt-in native ADK `request_input` elicitation with resumability.
 - Added stable elicitation event projection and response construction helpers.
 - Added explicit model catalogs and validated model selection for spawned agents.

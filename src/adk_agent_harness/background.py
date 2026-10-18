@@ -52,15 +52,29 @@ class BackgroundTask(BaseModel):
     """Status of one background spawned subagent."""
 
     task_id: str
+    """ID returned by `spawn_subagent(..., background=True)`."""
+
     name: str
+    """Child agent name."""
+
     goal: str
+    """Delegated goal."""
+
     model: str
+    """Model ID the child runs on."""
+
     app_name: str
     user_id: str
     parent_session_id: str
+    """Root session that started the task."""
+
     status: BackgroundTaskStatus = "running"
     result: Any = None
+    """Final text of the child, once `completed`."""
+
     error: str | None = None
+    """Failure or cancellation detail."""
+
     created_at: float
     finished_at: float | None = None
 

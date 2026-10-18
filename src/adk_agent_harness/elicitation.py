@@ -27,11 +27,22 @@ class ElicitationRequest(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     id: str
+    """Function-call ID. The resume response must carry the same ID."""
+
     message: str
+    """Question to show the user."""
+
     response_schema: dict[str, Any] | None = None
+    """JSON Schema for the answer, for rendering a form."""
+
     invocation_id: str
+    """Interrupted invocation to resume with `Runner.run_async(invocation_id=...)`."""
+
     author: str
+    """Agent that asked the question."""
+
     raw_event: Event = Field(exclude=True)
+    """The original ADK event."""
 
 
 def project_elicitation_event(event: Event) -> ElicitationRequest | None:

@@ -14,9 +14,16 @@ class ModelSpec(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     id: str
+    """ID the model selects in `spawn_subagent(model=...)`."""
+
     model_client: str | BaseLlm | None = None
+    """Model name or ADK `BaseLlm`. Defaults to `id`. Never shown to the model."""
+
     description: str = ""
+    """When to use this model, shown to the root agent."""
+
     capabilities: Sequence[str] = Field(default_factory=tuple)
+    """Short capability tags shown to the root agent, such as `reasoning`."""
 
 
 def model_client_id(model_client: str | BaseLlm) -> str:
