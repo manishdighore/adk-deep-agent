@@ -4,9 +4,9 @@
 
 ## Verification
 
-- [ ] `uv run --extra dev python -m pytest tests/unit`
+- [ ] `uv run python -m pytest tests/unit`
 - [ ] `uv build`
-- [ ] `uv run --extra dev python -m twine check dist/*`
+- [ ] `uv run python -m twine check dist/*`
 
 ## Notes
 

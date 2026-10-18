@@ -1,7 +1,8 @@
 # Project Context
 
-This repository is `adk-deep-agent`: a Python package that builds deep-agent
-ergonomics on top of native Google ADK primitives.
+This repository (`adk-deep-agent` on GitHub) publishes the `adk-agent-harness`
+package (import name `adk_agent_harness`): a Python package that builds
+deep-agent ergonomics on top of native Google ADK primitives.
 
 The goal is to keep the package close to ADK concepts such as `App`,
 `LlmAgent`, `ToolContext`, `Runner`, `SkillToolset`, tools, callbacks, events,
@@ -34,6 +35,17 @@ same registry. Keep provider clients, credentials, and secrets out of model
 context. If model availability later becomes session- or tenant-dependent,
 inject a precomputed catalog with a composable `before_model_callback`; do not
 perform provider discovery on every model request.
+
+Sandbox workspaces are ADK-owned. The package never implements a virtual
+filesystem or shell: it selects an ADK `BaseEnvironment` (`local`, `daytona`,
+`e2b`) and attaches ADK's `EnvironmentToolset`, or attaches ADK's Cloud Run
+sandbox code executor for `cloud_run`, which executes code and provides no file
+tools. What the package owns is backend selection, a build-time preflight of
+credentials and optional packages, and workspace sharing. One environment
+instance is shared by the root agent and any child that opts in, so delegated
+work sees the files the parent wrote. Backend secrets stay in the process
+environment or the developer-supplied config and never enter model context,
+matching the model-registry rule above.
 
 Use ADK's native `request_input` tool for structured user elicitation. The LLM
 calls `adk_request_input` with a message and JSON response schema, ADK emits a

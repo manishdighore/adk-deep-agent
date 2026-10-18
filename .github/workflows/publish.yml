@@ -30,7 +30,7 @@ jobs:
         run: uv build
 
       - name: Check distributions
-        run: uv run --extra dev python -m twine check dist/*
+        run: uv run python -m twine check dist/*
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1

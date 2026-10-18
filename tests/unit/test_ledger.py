@@ -3,10 +3,10 @@ from inspect import getdoc
 
 import pytest
 
-from adk_deep_agent.ledger import LEDGER_STATE_KEY
-from adk_deep_agent.ledger import TaskLedgerItem
-from adk_deep_agent.ledger import active_items
-from adk_deep_agent.tool import todo
+from adk_agent_harness.ledger import LEDGER_STATE_KEY
+from adk_agent_harness.ledger import TaskLedgerItem
+from adk_agent_harness.ledger import active_items
+from adk_agent_harness.tool import todo
 
 
 def test_todo_description_matches_hermes_schema() -> None:

@@ -1,8 +1,8 @@
-# ADK Deep Agent: Implementation Plan
+# ADK Agent Harness: Implementation Plan
 
 Status: Phase 1, Phase 2, and elicitation/model-selection additions implemented
-Target package: `adk-deep-agent`  
-Python package: `adk_deep_agent`  
+Target package: `adk-agent-harness`  
+Python package: `adk_agent_harness`  
 Updated: 2026-07-12
 
 This document specifies the ADK implementation work. Architecture comparisons and broader feature decisions remain in `ADK-DEEP-AGENT.md`.
@@ -12,7 +12,7 @@ This document specifies the ADK implementation work. Architecture comparisons an
 Implement a factory that creates a standard Google ADK `App` containing a configured root `LlmAgent`:
 
 ```python
-from adk_deep_agent import (
+from adk_agent_harness import (
     CompactionConfig,
     ThinkingConfig,
     create_deep_agent,
@@ -300,13 +300,13 @@ tool_context.state[LEDGER_STATE_KEY]
 Default key:
 
 ```python
-"adk_deep_agent:todos"
+"adk_agent_harness:todos"
 ```
 
 Built-in policy constants:
 
 ```python
-LEDGER_STATE_KEY = "adk_deep_agent:todos"
+LEDGER_STATE_KEY = "adk_agent_harness:todos"
 MAX_LEDGER_ITEMS = 100
 ENFORCE_SINGLE_IN_PROGRESS = True
 REJECT_MULTIPLE_WRITES_PER_MODEL_TURN = True
@@ -500,7 +500,7 @@ This preserves ADK plugins for caller-owned global functionality such as logging
 ## Proposed Package Files
 
 ```text
-adk_deep_agent/
+adk_agent_harness/
   __init__.py
   builder.py
   config.py
@@ -531,7 +531,7 @@ examples/
 
 ### Step 1: Package and Configuration
 
-1. Create the `adk_deep_agent` package and exports.
+1. Create the `adk_agent_harness` package and exports.
 2. Implement `ThinkingConfig` and `CompactionConfig`.
 3. Implement the initial `create_deep_agent(...)` signature.
 

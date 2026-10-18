@@ -1,4 +1,4 @@
-"""Session-backed task ledger for adk-deep-agent."""
+"""Session-backed task ledger for adk-agent-harness."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-LEDGER_STATE_KEY = "adk_deep_agent:todos"
+LEDGER_STATE_KEY = "adk_agent_harness:todos"
 TODO_TOOL_NAME = "todo"
 MAX_TODOS = 100
 

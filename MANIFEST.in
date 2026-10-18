@@ -2,7 +2,7 @@ include LICENSE
 include README.md
 include CHANGELOG.md
 include pyproject.toml
-include src/adk_deep_agent/py.typed
+include src/adk_agent_harness/py.typed
 
 recursive-include examples *.py
 recursive-include tests *.py

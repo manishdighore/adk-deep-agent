@@ -1,8 +1,8 @@
 """05: Enable structured elicitation and model-aware spawned agents."""
 
-from adk_deep_agent import ModelSpec
-from adk_deep_agent import SpawnConfig
-from adk_deep_agent import create_deep_agent
+from adk_agent_harness import ModelSpec
+from adk_agent_harness import SpawnConfig
+from adk_agent_harness import create_deep_agent
 
 
 app = create_deep_agent(

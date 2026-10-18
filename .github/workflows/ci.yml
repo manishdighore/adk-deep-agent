@@ -28,7 +28,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install dependencies
-        run: uv sync --extra dev
+        run: uv sync
 
       - name: Run tests
         run: uv run python -m pytest tests/unit
@@ -53,4 +53,4 @@ jobs:
         run: uv build
 
       - name: Check distributions
-        run: uv run --extra dev python -m twine check dist/*
+        run: uv run python -m twine check dist/*

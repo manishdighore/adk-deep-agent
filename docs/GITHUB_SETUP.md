@@ -32,6 +32,6 @@ Suggested repository settings:
 For PyPI Trusted Publishing, create a pending publisher on PyPI with:
 
 - Owner: `manishdighore`
-- Repository: `adk-deep-agent`
+- Repository: `adk-agent-harness`
 - Workflow: `publish.yml`
 - Environment: `pypi`

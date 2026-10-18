@@ -1,8 +1,8 @@
 """04: Configure prebuilt and on-demand subagents."""
 
-from adk_deep_agent import SpawnConfig
-from adk_deep_agent import SubAgentSpec
-from adk_deep_agent import create_deep_agent
+from adk_agent_harness import SpawnConfig
+from adk_agent_harness import SubAgentSpec
+from adk_agent_harness import create_deep_agent
 
 
 def search_docs(query: str) -> str:
@@ -45,7 +45,6 @@ app = create_deep_agent(
             "inspect_code": inspect_code,
         },
         allowed_tools=["search_docs", "inspect_code"],
-        default_mode="single_turn",
     ),
 )
 

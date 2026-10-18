@@ -5,10 +5,10 @@ from typing import Any
 
 import pytest
 
-from adk_deep_agent import REQUEST_INPUT_TOOL_NAME
-from adk_deep_agent import create_deep_agent
-from adk_deep_agent import create_elicitation_response
-from adk_deep_agent import project_elicitation_event
+from adk_agent_harness import REQUEST_INPUT_TOOL_NAME
+from adk_agent_harness import create_deep_agent
+from adk_agent_harness import create_elicitation_response
+from adk_agent_harness import project_elicitation_event
 from google.adk.artifacts.in_memory_artifact_service import InMemoryArtifactService
 from google.adk.events.event import Event
 from google.adk.memory.in_memory_memory_service import InMemoryMemoryService

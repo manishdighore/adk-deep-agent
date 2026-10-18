@@ -1,8 +1,8 @@
-# ADK Deep Agent: Conceptual Design and Pattern Selection
+# ADK Agent Harness: Conceptual Design and Pattern Selection
 
 Status: Living design; core, subagent, elicitation, and model-selection phases implemented
-Target package: `adk-deep-agent`  
-Python package: `adk_deep_agent`  
+Target package: `adk-agent-harness`  
+Python package: `adk_agent_harness`  
 Updated: 2026-07-12
 
 ## Purpose
@@ -12,14 +12,14 @@ package built on Google ADK. It compares relevant behavior in:
 
 1. LangChain Deep Agents, referred to below as Deep Agents.
 2. Hermes Agent, referred to below as Hermes.
-3. Google ADK, as the runtime foundation for `adk-deep-agent`.
+3. Google ADK, as the runtime foundation for `adk-agent-harness`.
 
 For each capability, the document answers:
 
 1. How does Deep Agents implement the capability?
 2. How does Hermes implement the capability?
 3. What native ADK primitive is available?
-4. Which pattern should `adk-deep-agent` adopt?
+4. Which pattern should `adk-agent-harness` adopt?
 
 This is not an implementation checklist. The ADK-specific Phase 1 build plan
 belongs in `ADK-DEEP-AGENT-IMPLEMENTATION-PLAN.md`.
@@ -36,7 +36,7 @@ The comparisons below are grounded in the locally cloned source trees:
 
 ## Design Position
 
-`adk-deep-agent` should be an opinionated assembly layer over ADK, not a new
+`adk-agent-harness` should be an opinionated assembly layer over ADK, not a new
 agent runtime.
 
 The package should provide a small builder API that assembles an ordinary ADK
@@ -68,6 +68,8 @@ The guiding hybrid is:
 | Thinking | Model/middleware dependent | Provider reasoning configuration | Native ADK `BuiltInPlanner` configuration |
 | Structured elicitation | Interrupt/approval middleware | Blocking `clarify` callback with UI request/response IDs | Native ADK `request_input`, resumable invocation, and matching `FunctionResponse` |
 | Spawn model selection | Model profiles supplied to delegated agents | Child model/provider configuration | Explicit validated model registry exposed as instruction context |
+| Sandbox workspace | Virtual filesystem backend behind file tools | Local shell and file tools | Native ADK `EnvironmentToolset` over a selectable ADK `BaseEnvironment` |
+| Context caching | Provider dependent | Provider dependent | Native ADK `App.context_cache_config` |
 
 ## 1. Agent Loop and Runtime Ownership
 
@@ -106,7 +108,7 @@ ADK already owns the equivalent runtime concerns:
 | Tool and model boundaries | Agent callbacks and app plugins |
 | Output progression | ADK events |
 
-### ADK-Deep-Agent Recommendation
+### ADK Agent Harness Recommendation
 
 Adopt the Deep Agents facade idea, but not its middleware runtime model. Expose
 `create_deep_agent(...) -> App` and construct a standard root `LlmAgent`
@@ -168,7 +170,7 @@ The todo ledger and model thinking must not be treated as the same feature. A
 thinking-enabled model may reason better without maintaining an external plan;
 a ledger-enabled agent can track work even with thinking disabled.
 
-### ADK-Deep-Agent Recommendation
+### ADK Agent Harness Recommendation
 
 Adopt the planning pattern shared by Deep Agents and Hermes: planning is
 represented by the built-in `todo` ledger and is available by default in the
@@ -227,12 +229,12 @@ Therefore, Deep Agents' reject-all competing-write behavior cannot be enforced
 reliably only inside the `todo` tool. The model response must be examined
 before competing todo tool calls are dispatched.
 
-### ADK-Deep-Agent Recommendation
+### ADK Agent Harness Recommendation
 
 Use the Hermes tool surface and the Deep Agents safety behavior:
 
 1. Provide one built-in `todo` tool; it is not an optional factory argument.
-2. Store validated ledger state under an `adk_deep_agent:` namespaced session
+2. Store validated ledger state under an `adk_agent_harness:` namespaced session
    state key.
 3. Expose read, replace, and merge behavior through the one compact tool.
 4. Inject active items through a root `LlmAgent.before_model_callback`, not an
@@ -317,11 +319,11 @@ task-delegation marker and completed through `finish_task`.
 For dynamic spawned children, mutating `root_agent.sub_agents` during a run is
 not the right abstraction. The current model call will not automatically gain a
 new clean delegation tool, and task-mode delegation expects the target to be
-discoverable through the static root tree. Instead, an ADK-deep-agent spawn
+discoverable through the static root tree. Instead, an ADK Agent Harness spawn
 tool should create a temporary `LlmAgent` and execute it with
 `ToolContext.run_node(...)`.
 
-This gives ADK-deep-agent two aligned paths:
+This gives ADK Agent Harness two aligned paths:
 
 | Subagent type | ADK primitive | Product behavior |
 | --- | --- | --- |
@@ -334,22 +336,22 @@ than ordinary conversational transfer.
 
 There is one important distinction for interactive tasks. Static prebuilt
 `task` subagents participate in ADK's task-isolation and resume flow. Dynamic
-spawned `task` agents run through a function-tool wrapper; they can stream a
-clarification message, but the next user turn is not automatically routed back
-to that temporary child. ADK-deep-agent should surface that case as a
-`waiting_for_user` spawn result and let the parent continue explicitly.
+spawned agents run through a function-tool wrapper and are not part of the
+agent tree, so a resumed user turn cannot be routed back to them. Spawned
+agents therefore always run in `single_turn` mode, mirroring ADK's
+`_SingleTurnAgentTool`, and are never offered `adk_request_input`.
 
-### ADK-Deep-Agent Recommendation
+### ADK Agent Harness Recommendation
 
 When subagents are added after the Phase 1 core:
 
 1. Use native ADK `sub_agents` for prebuilt developer-declared workers.
-2. Use an ADK-deep-agent spawn/delegate tool for on-demand workers, backed by
+2. Use an ADK Agent Harness spawn/delegate tool for on-demand workers, backed by
    `ToolContext.run_node(...)` and developer-owned tool/skill registries.
-3. Default both paths to `single_turn` for focused non-interactive work.
+3. Default prebuilt subagents to `single_turn`, and always run spawned
+   subagents in `single_turn` for focused non-interactive work.
 4. Offer native ADK `task` as an explicit interactive delegated-task option
-   for prebuilt subagents, and as a foreground spawned task that can report
-   `waiting_for_user` when it needs clarification.
+   for prebuilt subagents only.
 5. Do not implement focused work through conversational transfer.
 6. Apply Hermes-style child tool restrictions, non-recursive defaults, depth
    limits, timeout policy, and cancellation policy around ADK child execution.
@@ -358,11 +360,11 @@ When subagents are added after the Phase 1 core:
 
 This differs from Hermes in an important way: Hermes owns the child execution
 loop and therefore must build progress relays, child registries, and result
-plumbing itself. ADK-deep-agent should keep Hermes' operational guardrails but
+plumbing itself. ADK Agent Harness should keep Hermes' operational guardrails but
 use ADK's native agent execution, session, event, and task primitives.
 
 It also differs from Deep Agents: Deep Agents productizes delegation as a
-LangGraph/LangChain middleware tool. ADK-deep-agent should productize the same
+LangGraph/LangChain middleware tool. ADK Agent Harness should productize the same
 developer experience but map it onto ADK's `sub_agents` and `run_node`
 primitives.
 
@@ -423,7 +425,7 @@ The event metadata is not identical across modes:
 | Spawned `single_turn` | Spawned child `author`, spawned child `node_info.path`, sub-branch, spawn tool function response |
 | Spawned `task` | Spawned child `author`, spawned child `node_info.path`, `finish_task` function call/response, spawn tool function response |
 
-Therefore, ADK-deep-agent does not need to invent a separate internal streaming
+Therefore, ADK Agent Harness does not need to invent a separate internal streaming
 engine. It can expose raw ADK events directly and optionally add a stable
 projection for callers that want Deep Agents-style nested work visualization.
 
@@ -437,7 +439,7 @@ Reasoning/thought events should be treated as ordinary raw ADK content parts
 when the selected model and thinking configuration emit them. Hidden reasoning
 availability remains provider/model dependent.
 
-### ADK-Deep-Agent Recommendation
+### ADK Agent Harness Recommendation
 
 Use ADK events as the sole execution stream. Do not create an independent
 subagent event engine.
@@ -504,7 +506,7 @@ agents and long-running/resumable behavior, but a deep-agent product contract
 would still need durable job identity, authorization, status, cancellation,
 idempotency, and resume handling.
 
-### ADK-Deep-Agent Recommendation
+### ADK Agent Harness Recommendation
 
 Keep the concepts separate:
 
@@ -556,7 +558,7 @@ ADK state remains distinct from compacted event history. A task ledger stored
 in session state can therefore be read again after old events have been
 summarized.
 
-### ADK-Deep-Agent Recommendation
+### ADK Agent Harness Recommendation
 
 Use native ADK event compaction, not custom middleware or a custom compressor.
 
@@ -602,7 +604,7 @@ ADK runs plugins before agent callbacks and permits short-circuiting. A plugin
 used for root-only todo injection would therefore also risk applying the root
 task context to future delegated children.
 
-### ADK-Deep-Agent Recommendation
+### ADK Agent Harness Recommendation
 
 Do not reproduce a generic middleware layer.
 
@@ -641,7 +643,7 @@ ADK has an experimental `SkillToolset` capability. A developer can build one
 toolset containing inline or filesystem-loaded ADK skills and attach it as one
 agent toolset. ADK then owns the skill activation and dynamic tool behavior.
 
-### ADK-Deep-Agent Recommendation
+### ADK Agent Harness Recommendation
 
 Expose the ADK primitive rather than building a second skill catalog in Phase
 1:
@@ -677,7 +679,7 @@ Thinking behavior is model/provider-sensitive. In particular, a generic
 enabled configuration without an explicit budget is not valid for every
 supported `BaseLlm` adapter.
 
-### ADK-Deep-Agent Recommendation
+### ADK Agent Harness Recommendation
 
 Expose explicit native thinking configuration and leave it off unless the
 developer supplies it:
@@ -738,7 +740,7 @@ set:
 | Large tool context | Summarization and argument trimming | Compression and cache resetting | Defer additional trimming until native ADK compaction is measured |
 | Memory | Optional middleware | Memory manager around session lifecycle | Keep memory outside Phase 1 and design separately from the task ledger |
 
-### ADK-Deep-Agent Recommendation
+### ADK Agent Harness Recommendation
 
 Treat these as design constraints for later capabilities, not reasons to
 expand Phase 1. The first package surface should remain small and native to
@@ -762,6 +764,8 @@ time as the execution feature rather than adding unsafe delegation first.
 | Nested progress projection | Stable projection over raw ADK subagent events |
 | Structured elicitation | Native ADK `request_input` with resumable UI request/response helpers |
 | Model selection | Explicit model registry and validated spawned-agent model choice |
+| Sandbox workspace | Optional selectable ADK environment exposed through ADK's environment toolset |
+| Context caching | Optional native ADK context caching on the returned `App` |
 
 ### Designed Here, Implemented Later
 
@@ -772,7 +776,7 @@ time as the execution feature rather than adding unsafe delegation first.
 
 ### Explicit Non-Goals
 
-`adk-deep-agent` should not:
+`adk-agent-harness` should not:
 
 1. Replace ADK `Runner`.
 2. Port LangGraph middleware or require LangGraph.
@@ -802,6 +806,59 @@ time as the execution feature rather than adding unsafe delegation first.
 | Elicitation resume | Matching user-role `FunctionResponse` and retained invocation ID |
 | Spawn model inventory | Explicit developer-provided registry; no per-call provider discovery |
 | Spawn model validation | Tool execution validates against the same catalog shown to the root model |
+| Sandbox backend | Developer-selected ADK environment; no package-owned virtual filesystem |
+| Sandbox readiness | Credentials and optional packages preflighted while the agent is built |
+| Sandbox sharing | One environment instance shared by the root agent and opted-in children |
+| Context caching | Native ADK config passed through unchanged; off unless requested |
+
+## 15. Sandbox Workspace and Context Caching
+
+### Sandbox Workspace
+
+Deep Agents provides file tools over a pluggable virtual filesystem, and Hermes
+provides local shell and file tools directly. ADK now covers both through
+`EnvironmentToolset`, which exposes `Execute`, `ReadFile`, `EditFile`, and
+`WriteFile` over any `BaseEnvironment`, and injects its own workspace
+instruction naming the working directory.
+
+The package therefore owns no filesystem abstraction. It owns backend
+selection, credential preflight, and sharing:
+
+| Backend | ADK primitive | Required environment variables | Capability |
+| --- | --- | --- | --- |
+| `local` | `LocalEnvironment` | none | shell and file tools, no isolation |
+| `daytona` | `DaytonaEnvironment` | `DAYTONA_API_KEY` | remote workspace |
+| `e2b` | `E2BEnvironment` | `E2B_API_KEY` | remote workspace |
+| `cloud_run` | `CloudRunSandboxCodeExecutor` | none | code execution only |
+
+Optional variables are `DAYTONA_API_URL` and `DAYTONA_TARGET` for Daytona, and
+`E2B_DOMAIN` for E2B. Both remote backends accept an explicit `api_key` on the
+config instead. Cloud Run is not an environment: it is a code executor that
+shells out to a guest binary and therefore runs only inside a Cloud Run
+container deployed with the sandbox launcher.
+
+Three decisions follow from that:
+
+1. **Fail at build time, not at first tool call.** Missing credentials, missing
+   optional packages, and a missing Cloud Run guest binary are reported
+   together when the agent is constructed. A developer can also query the same
+   check without building an agent.
+2. **One workspace per agent.** The root agent, opted-in prebuilt children, and
+   spawned children share a single environment instance, so delegated work sees
+   the files the parent wrote. Sharing is opt-in per child rather than implicit.
+3. **No credential brokering.** Backend secrets stay in the process environment
+   or in the developer-supplied config. They are never placed in model context,
+   matching the model-registry rule.
+
+### Context Caching
+
+Long deep-agent sessions resend a large stable prefix: root instruction, ledger
+guidance, spawn guidance, the model catalog, skills, and tool declarations. ADK
+exposes native caching for exactly this through `App.context_cache_config`.
+
+The package passes the ADK config through unchanged rather than wrapping it,
+because the native fields already express the full contract, and caching stays
+off unless the developer asks for it.
 
 ## Source Index
 

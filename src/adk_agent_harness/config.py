@@ -1,4 +1,4 @@
-"""Configuration models for adk-deep-agent."""
+"""Configuration models for adk-agent-harness."""
 
 from __future__ import annotations
 
@@ -29,7 +29,6 @@ class CompactionConfig(BaseModel):
 
 
 SubAgentMode = Literal["single_turn", "task"]
-SpawnStreamMode = Literal["events", "summary", "silent"]
 
 
 class SubAgentSpec(BaseModel):
@@ -46,10 +45,16 @@ class SubAgentSpec(BaseModel):
     skills: SkillToolset | None = None
     mode: SubAgentMode = "single_turn"
     thinking: bool | ThinkingConfig = False
+    use_sandbox: bool = False
+    """Grant this child the root agent's configured sandbox workspace."""
 
 
 class SpawnConfig(BaseModel):
-    """On-demand spawned subagent configuration."""
+    """On-demand spawned subagent configuration.
+
+    Spawned children always run in ADK `single_turn` mode: they complete the
+    delegated request once, without user interaction, and return a result.
+    """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -58,6 +63,3 @@ class SpawnConfig(BaseModel):
     skills: Mapping[str, SkillToolset] = Field(default_factory=dict)
     allowed_tools: Sequence[str] = ()
     allowed_skills: Sequence[str] = ()
-    default_mode: SubAgentMode = "single_turn"
-    stream_mode: SpawnStreamMode = "events"
-    max_depth: int = Field(default=1, ge=0)

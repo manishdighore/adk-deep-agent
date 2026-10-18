@@ -1,6 +1,6 @@
-"""01: Create a basic ADK deep agent with the built-in todo ledger."""
+"""01: Create a basic ADK Agent Harness with the built-in todo ledger."""
 
-from adk_deep_agent import create_deep_agent
+from adk_agent_harness import create_deep_agent
 
 
 def search_notes(query: str) -> str:

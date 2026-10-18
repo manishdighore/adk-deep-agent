@@ -5,11 +5,13 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from google.adk.agents import Agent
+from google.adk.agents.context_cache_config import ContextCacheConfig
 from google.adk.agents.llm_agent import ToolUnion
 from google.adk.apps import App
 from google.adk.apps.app import EventsCompactionConfig
 from google.adk.apps.app import ResumabilityConfig
 from google.adk.apps.llm_event_summarizer import LlmEventSummarizer
+from google.adk.environment import BaseEnvironment
 from google.adk.models import BaseLlm
 from google.adk.planners import BuiltInPlanner
 from google.adk.plugins.base_plugin import BasePlugin
@@ -17,6 +19,7 @@ from google.adk.tools import request_input
 from google.adk.tools.skill_toolset import SkillToolset
 from google.genai import types
 
+from .background import inject_background_task_updates
 from .callbacks import guard_multiple_todo_writes
 from .callbacks import inject_active_ledger
 from .config import CompactionConfig
@@ -27,6 +30,9 @@ from .elicitation import ELICITATION_TOOL_GUIDANCE
 from .models import ModelSpec
 from .models import build_model_registry
 from .models import format_model_catalog
+from .sandbox import SandboxConfig
+from .sandbox import SandboxKind
+from .sandbox import build_sandbox
 from .subagents import SPAWN_TOOL_GUIDANCE
 from .subagents import build_prebuilt_subagent
 from .subagents import build_tool_registry
@@ -34,6 +40,7 @@ from .subagents import create_spawn_subagent_tool
 from .subagents import normalize_spawn_config
 from .subagents import validate_agent_name
 from .tool import create_todo_tool
+from .tool_call_repair import ToolCallRepairPlugin
 
 LEDGER_TOOL_GUIDANCE = """You have a built-in `todo` tool for tracking multi-step work.
 
@@ -91,6 +98,16 @@ def _build_planner(thinking: bool | ThinkingConfig):
     return BuiltInPlanner(thinking_config=config)
 
 
+def _build_context_cache_config(
+    context_cache: bool | ContextCacheConfig | None,
+) -> ContextCacheConfig | None:
+    if context_cache is None or context_cache is False:
+        return None
+    if context_cache is True:
+        return ContextCacheConfig()
+    return context_cache
+
+
 def _build_compaction_config(
     compaction: CompactionConfig | None,
     root_agent: Agent,
@@ -126,23 +143,49 @@ def create_deep_agent(
     spawn: SpawnConfig | None = None,
     elicitation: bool = False,
     available_models: Sequence[str | ModelSpec] = (),
+    sandbox: SandboxKind | SandboxConfig | BaseEnvironment | None = None,
+    context_cache: bool | ContextCacheConfig | None = None,
 ) -> App:
-    """Create a standard ADK App with deep-agent behavior."""
+    """Create a standard ADK App with deep-agent behavior.
+
+    Args:
+        sandbox: Optional workspace for shell and file tools. Accepts a backend
+            name (`local`, `daytona`, `e2b`, `cloud_run`), a `SandboxConfig`, or
+            a preconstructed ADK `BaseEnvironment`. Filesystem backends attach
+            ADK's `EnvironmentToolset`; `cloud_run` attaches ADK's Cloud Run
+            sandbox code executor instead. Credentials are preflighted here.
+        context_cache: Optional ADK context caching. `True` uses ADK defaults;
+            pass an ADK `ContextCacheConfig` to tune intervals and TTL.
+    """
 
     root_tools: list[ToolUnion] = [*tools]
     if skills is not None:
         root_tools.append(skills)
+
+    attached_sandbox = build_sandbox(sandbox)
+    if attached_sandbox.toolset is not None:
+        root_tools.append(attached_sandbox.toolset)
 
     spawn_config = normalize_spawn_config(spawn)
     default_model_id, model_registry = build_model_registry(
         default_model_client=model_client,
         available_models=available_models,
     )
+    if attached_sandbox.toolset is None and attached_sandbox.code_executor is None:
+        sandbox_children = [spec.name for spec in subagents if spec.use_sandbox]
+        if sandbox_children:
+            joined = ", ".join(sandbox_children)
+            raise ValueError(
+                f"subagent(s) request a sandbox but none is configured: {joined}"
+            )
+
     child_agents = [
         build_prebuilt_subagent(
             spec,
             default_model_client=model_client,
             planner_builder=_build_planner,
+            sandbox_toolset=attached_sandbox.toolset,
+            sandbox_code_executor=attached_sandbox.code_executor,
         )
         for spec in subagents
     ]
@@ -153,7 +196,11 @@ def create_deep_agent(
 
     validate_agent_name(name)
     if spawn_config is not None:
-        tool_registry = build_tool_registry(tools, spawn_config.tools)
+        tool_registry = build_tool_registry(
+            tools,
+            spawn_config.tools,
+            sandbox_toolset=attached_sandbox.toolset,
+        )
         root_tools.append(
             create_spawn_subagent_tool(
                 root_name=name,
@@ -191,16 +238,25 @@ def create_deep_agent(
         tools=root_tools,
         sub_agents=child_agents,
         planner=_build_planner(thinking),
-        before_model_callback=inject_active_ledger,
+        code_executor=attached_sandbox.code_executor,
+        before_model_callback=(
+            [inject_active_ledger, inject_background_task_updates]
+            if spawn_config is not None
+            else inject_active_ledger
+        ),
         after_model_callback=guard_multiple_todo_writes,
     )
 
     return App(
         name=name,
         root_agent=root_agent,
-        plugins=list(plugins),
+        plugins=[
+            ToolCallRepairPlugin(),
+            *(plugin for plugin in plugins if not isinstance(plugin, ToolCallRepairPlugin)),
+        ],
         resumability_config=(
             ResumabilityConfig(is_resumable=True) if elicitation else None
         ),
         events_compaction_config=_build_compaction_config(compaction, root_agent),
+        context_cache_config=_build_context_cache_config(context_cache),
     )

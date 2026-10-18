@@ -21,7 +21,7 @@ assignees: ""
 ## Environment
 
 - Python version:
-- `adk-deep-agent` version:
+- `adk-agent-harness` version:
 - `google-adk` version:
 - OS:
 

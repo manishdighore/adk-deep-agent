@@ -1,4 +1,4 @@
-"""Built-in ADK tools for adk-deep-agent."""
+"""Built-in ADK tools for adk-agent-harness."""
 
 from __future__ import annotations
 

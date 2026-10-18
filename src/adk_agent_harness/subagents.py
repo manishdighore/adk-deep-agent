@@ -1,4 +1,4 @@
-"""Subagent helpers for adk-deep-agent."""
+"""Subagent helpers for adk-agent-harness."""
 
 from __future__ import annotations
 
@@ -7,25 +7,34 @@ from typing import Any
 
 from google.adk.agents import Agent
 from google.adk.agents.llm_agent import ToolUnion
+from google.adk.events._branch_path import _BranchPath
 from google.adk.models import BaseLlm
 from google.adk.tools import FunctionTool
 from google.adk.tools.base_tool import BaseTool
 from google.adk.tools.skill_toolset import SkillToolset
 from google.adk.tools.tool_context import ToolContext
-from google.genai import types
 
+from .background import start_background_child
 from .config import SpawnConfig
 from .config import SubAgentSpec
+from .elicitation import REQUEST_INPUT_TOOL_NAME
 from .models import ModelSpec
+from .sandbox import SANDBOX_TOOLSET_NAME
 
 SPAWN_TOOL_NAME = "spawn_subagent"
+SPAWN_CHILD_MODE = "single_turn"
 
 SPAWN_TOOL_GUIDANCE = """You have a built-in `spawn_subagent` tool for focused delegated work.
 
 Use it when a temporary specialist should handle a bounded task with explicit
 goal, context, model, and allowed tools or skills. Select only a model from the
-available model catalog. Spawned subagents are foreground workers: wait for
-their result before finalizing your answer.
+available model catalog. Spawned subagents run once without user interaction,
+so pass every detail they need in `goal` and `context`.
+
+By default you wait for the subagent's result. Set `background=true` for
+independent work you do not need before continuing: the call returns a task ID
+immediately, and the result is reported to you automatically once the
+subagent finishes. Background subagents do not see your session state.
 """
 
 
@@ -51,8 +60,14 @@ def _tool_name(tool: ToolUnion) -> str | None:
 def build_tool_registry(
     tools: Sequence[ToolUnion],
     extra_tools: Mapping[str, ToolUnion],
+    *,
+    sandbox_toolset: ToolUnion | None = None,
 ) -> dict[str, ToolUnion]:
-    """Build a name-to-tool registry for spawned subagents."""
+    """Build a name-to-tool registry for spawned subagents.
+
+    A configured sandbox is registered under `SANDBOX_TOOLSET_NAME` so a spawned
+    child can be granted the same workspace through `allowed_tools`.
+    """
 
     registry: dict[str, ToolUnion] = {}
     for tool in tools:
@@ -60,6 +75,12 @@ def build_tool_registry(
         if name:
             registry[name] = tool
     registry.update(extra_tools)
+    if sandbox_toolset is not None:
+        registry.setdefault(SANDBOX_TOOLSET_NAME, sandbox_toolset)
+    # Spawned children run in single-turn mode and never talk to the user.
+    for name, tool in list(registry.items()):
+        if REQUEST_INPUT_TOOL_NAME in {name, _tool_name(tool)}:
+            del registry[name]
     return registry
 
 
@@ -81,6 +102,8 @@ def build_prebuilt_subagent(
     *,
     default_model_client: str | BaseLlm,
     planner_builder,
+    sandbox_toolset: ToolUnion | None = None,
+    sandbox_code_executor: Any | None = None,
 ) -> Agent:
     """Create a prebuilt ADK child agent from a SubAgentSpec."""
 
@@ -88,6 +111,8 @@ def build_prebuilt_subagent(
     child_tools: list[ToolUnion] = [*spec.tools]
     if spec.skills is not None:
         child_tools.append(spec.skills)
+    if spec.use_sandbox and sandbox_toolset is not None:
+        child_tools.append(sandbox_toolset)
 
     return Agent(
         name=name,
@@ -96,6 +121,7 @@ def build_prebuilt_subagent(
         description=spec.description or spec.goal,
         tools=child_tools,
         planner=planner_builder(spec.thinking),
+        code_executor=sandbox_code_executor if spec.use_sandbox else None,
         mode=spec.mode,
     )
 
@@ -118,34 +144,21 @@ def _validate_selected_names(
     return names
 
 
-def _build_spawn_instruction(
-    *,
-    name: str,
-    goal: str,
-    context: str | None,
-) -> str:
-    instruction = (
+def _build_spawn_instruction(name: str) -> str:
+    return (
         f"You are the temporary `{name}` subagent.\n\n"
-        f"Goal: {goal}\n\n"
-        "Complete only this delegated task. Use the provided tools and skills "
-        "when useful. Return a concise result for the parent agent."
+        "Complete only the delegated task in the request. Use the provided "
+        "tools and skills when useful. You cannot ask the user questions; "
+        "state any assumptions you make. Return a concise result for the "
+        "parent agent."
     )
+
+
+def _build_spawn_request(goal: str, context: str | None) -> str:
+    request = f"Goal: {goal}"
     if context:
-        instruction += f"\n\nContext from parent:\n{context}"
-    return instruction
-
-
-def _last_text_from_child_events(events: Sequence[Any]) -> str | None:
-    texts: list[str] = []
-    for event in events:
-        content = getattr(event, "content", None)
-        parts = getattr(content, "parts", None)
-        if not parts:
-            continue
-        for part in parts:
-            if isinstance(part, types.Part) and part.text and not part.thought:
-                texts.append(part.text)
-    return texts[-1] if texts else None
+        request += f"\n\nContext from parent:\n{context}"
+    return request
 
 
 def create_spawn_subagent_tool(
@@ -166,8 +179,8 @@ def create_spawn_subagent_tool(
         context: str | None = None,
         tool_names: list[str] | None = None,
         skill_names: list[str] | None = None,
-        mode: str | None = None,
         model: str | None = None,
+        background: bool = False,
         tool_context: ToolContext | None = None,
     ) -> dict[str, Any]:
         """Spawn a temporary ADK subagent for focused delegated work.
@@ -178,8 +191,9 @@ def create_spawn_subagent_tool(
             context: Optional parent context for the task.
             tool_names: Allowed tool names to provide to the child.
             skill_names: Allowed skill toolset names to provide to the child.
-            mode: `single_turn` or `task`; defaults to package configuration.
             model: Allowed model ID; defaults to the root agent's model.
+            background: Run the child in the background and return a task ID
+                immediately. Its result is reported to you when it finishes.
             tool_context: ADK tool context injected by the runtime.
         """
 
@@ -207,10 +221,6 @@ def create_spawn_subagent_tool(
                 kind="skill(s)",
             )
 
-            child_mode = mode or config.default_mode
-            if child_mode not in {"single_turn", "task"}:
-                raise ValueError("mode must be `single_turn` or `task`")
-
             selected_model_id = (model or default_model_id).strip()
             if selected_model_id not in model_registry:
                 raise ValueError(f"unknown model: {selected_model_id}")
@@ -226,38 +236,47 @@ def create_spawn_subagent_tool(
             child = Agent(
                 name=child_name,
                 model=selected_model,
-                instruction=_build_spawn_instruction(
-                    name=child_name,
-                    goal=goal,
-                    context=context,
-                ),
+                instruction=_build_spawn_instruction(child_name),
                 description=goal,
                 tools=child_tools,
-                mode=child_mode,
+                # ADK rejects `single_turn` for a Runner root agent, so a
+                # background child keeps the default mode, as with AgentTool.
+                # It still receives one request and cannot reach the user.
+                mode=None if background else SPAWN_CHILD_MODE,
             )
-            event_start = len(tool_context.session.events)
+
+            request = _build_spawn_request(goal, context)
+            if background:
+                task = await start_background_child(
+                    child,
+                    request=request,
+                    goal=goal,
+                    model_id=selected_model_id,
+                    tool_context=tool_context,
+                )
+                return {
+                    "status": "running",
+                    "task_id": task.task_id,
+                    "name": child_name,
+                    "model": selected_model_id,
+                }
+
+            # Mirror ADK's `_SingleTurnAgentTool`: run the child on a sub-branch
+            # keyed by this function call so its events correlate to the call.
+            child_branch = _BranchPath.create_sub_branch(
+                tool_context.get_invocation_context().branch,
+                name=child_name,
+                run_id=tool_context.function_call_id,
+            )
             result = await tool_context.run_node(
                 child,
-                node_input=context or goal,
-                use_sub_branch=True,
+                node_input=request,
+                override_branch=child_branch,
+                use_sub_branch=False,
             )
-            child_events = [
-                event
-                for event in tool_context.session.events[event_start:]
-                if event.author == child_name
-            ]
-            if child_mode == "task" and result is None:
-                return {
-                    "status": "waiting_for_user",
-                    "name": child_name,
-                    "mode": child_mode,
-                    "model": selected_model_id,
-                    "message": _last_text_from_child_events(child_events),
-                }
             return {
                 "status": "completed",
                 "name": child_name,
-                "mode": child_mode,
                 "model": selected_model_id,
                 "result": result,
             }

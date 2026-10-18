@@ -1,22 +1,22 @@
 <p align="center">
-  <img src="docs/assets/icon.svg" alt="adk-deep-agent" width="112" height="112">
+  <img src="https://raw.githubusercontent.com/manishdighore/adk-deep-agent/main/docs/assets/icon.svg" alt="adk-agent-harness" width="112" height="112">
 </p>
 
-<h3 align="center">adk-deep-agent</h3>
+<h3 align="center">adk-agent-harness</h3>
 
 <p align="center">
   Deep-agent ergonomics on top of native Google ADK primitives.
 </p>
 
 <p align="center">
-  <a href="https://pypi.org/project/adk-deep-agent/"><img alt="PyPI" src="https://img.shields.io/pypi/v/adk-deep-agent.svg"></a>
-  <a href="https://pypi.org/project/adk-deep-agent/"><img alt="Python versions" src="https://img.shields.io/pypi/pyversions/adk-deep-agent.svg"></a>
+  <a href="https://pypi.org/project/adk-agent-harness/"><img alt="PyPI" src="https://img.shields.io/pypi/v/adk-agent-harness.svg"></a>
+  <a href="https://pypi.org/project/adk-agent-harness/"><img alt="Python versions" src="https://img.shields.io/pypi/pyversions/adk-agent-harness.svg"></a>
   <a href="https://github.com/manishdighore/adk-deep-agent/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/manishdighore/adk-deep-agent/actions/workflows/ci.yml/badge.svg"></a>
   <a href="https://github.com/manishdighore/adk-deep-agent/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
-  <a href="https://github.com/google/adk-python"><img alt="Google ADK" src="https://img.shields.io/badge/Google%20ADK-2.2%2B-4285F4.svg"></a>
+  <a href="https://github.com/google/adk-python"><img alt="Google ADK" src="https://img.shields.io/badge/Google%20ADK-2.7%2B-4285F4.svg"></a>
 </p>
 
-`adk-deep-agent` is a small Python package that creates a standard
+`adk-agent-harness` is a small Python package that creates a standard
 `google.adk.apps.App` with deep-agent capabilities pre-wired: a task ledger,
 context injection, structured user elicitation, thinking, compaction, skills,
 prebuilt subagents, and model-aware on-demand spawned subagents.
@@ -33,6 +33,8 @@ primitives.
 - **Structured elicitation**: optional native ADK `request_input` interruption with UI helpers.
 - **Thinking support**: simple wrapper over ADK `BuiltInPlanner`.
 - **Native compaction**: optional ADK event compaction with a deep-agent summary prompt.
+- **Sandbox workspace**: optional shell and file tools backed by a local, Daytona, E2B, or Cloud Run sandbox, with credentials preflighted at build time.
+- **Context caching**: optional ADK context caching for long sessions.
 - **Tool flexibility**: accepts ADK `ToolUnion` values, including functions, `BaseTool`, `BaseToolset`, and MCP toolsets.
 - **Skills**: accepts one developer-created ADK `SkillToolset`.
 - **Prebuilt subagents**: attaches native ADK `sub_agents`.
@@ -43,24 +45,33 @@ primitives.
 ## Installation
 
 ```bash
-pip install adk-deep-agent
+pip install adk-agent-harness
 ```
 
 With uv:
 
 ```bash
-uv add adk-deep-agent
+uv add adk-agent-harness
 ```
 
 Requirements:
 
 - Python 3.10+
-- `google-adk>=2.2.0,<3`
+- `google-adk>=2.7.1,<3`
+
+Optional extras install ADK's sandbox backends: `[daytona]`, `[e2b]`, or
+`[sandbox]` for both.
+
+Model clients and ADK services stay your choice. Pass any ADK `BaseLlm` as
+`model_client` (for example `LiteLlm`, installed with `litellm` or
+`google-adk[extensions]`), and give the ADK `Runner` whichever session,
+artifact, or memory service your app uses. A Postgres `DatabaseSessionService`
+needs SQLAlchemy and an async driver such as `asyncpg`, installed by your app.
 
 ## Quick Start
 
 ```python
-from adk_deep_agent import create_deep_agent
+from adk_agent_harness import create_deep_agent
 
 
 def search_notes(query: str) -> str:
@@ -106,7 +117,7 @@ for event in runner.run(
 ## Factory API
 
 ```python
-from adk_deep_agent import create_deep_agent
+from adk_agent_harness import create_deep_agent
 
 app = create_deep_agent(
     name="assistant",
@@ -136,7 +147,7 @@ The model can request one or more answers with an object JSON schema. When the
 runner emits the interruption, project it into a stable UI-facing request:
 
 ```python
-from adk_deep_agent import (
+from adk_agent_harness import (
     create_elicitation_response,
     project_elicitation_event,
 )
@@ -174,7 +185,7 @@ The tool supports:
 ## Thinking And Compaction
 
 ```python
-from adk_deep_agent import (
+from adk_agent_harness import (
     CompactionConfig,
     ThinkingConfig,
     create_deep_agent,
@@ -194,6 +205,120 @@ app = create_deep_agent(
 
 `thinking` maps to ADK `BuiltInPlanner`. `compaction` maps to ADK native event
 compaction using a structured summarization prompt.
+
+## Context Caching
+
+Set `context_cache=True` to enable ADK context caching with its defaults, or
+pass an ADK `ContextCacheConfig` to tune it. Caching pays off when a long
+session keeps re-sending a large stable prefix (instructions, skills, tool
+declarations).
+
+```python
+from google.adk.agents.context_cache_config import ContextCacheConfig
+
+app = create_deep_agent(
+    name="cached_agent",
+    model_client="gemini-3-flash-preview",
+    instruction="Work through long tasks with a stable toolset.",
+    context_cache=ContextCacheConfig(
+        cache_intervals=5,
+        ttl_seconds=900,
+        min_tokens=2048,
+    ),
+)
+```
+
+The value maps directly onto `App.context_cache_config`. Caching is off when
+the argument is omitted.
+
+## Sandbox Workspace
+
+Set `sandbox=` to give the agent a workspace with shell and file tools. The
+filesystem backends attach ADK's `EnvironmentToolset` (`Execute`, `ReadFile`,
+`EditFile`, `WriteFile`) and ADK injects its own workspace instruction with the
+working directory.
+
+```python
+from adk_agent_harness import SandboxConfig, create_deep_agent
+
+app = create_deep_agent(
+    name="workspace_agent",
+    model_client="gemini-3-flash-preview",
+    instruction="Work inside the provided workspace.",
+    sandbox=SandboxConfig(kind="e2b", timeout=600),
+)
+```
+
+`sandbox` accepts a backend name (`"local"`, `"daytona"`, `"e2b"`,
+`"cloud_run"`), a `SandboxConfig`, or an ADK `BaseEnvironment` you built
+yourself. The environment is created lazily on first use and closed with the
+toolset.
+
+### Backends And Required Environment Variables
+
+| Backend | Install | Required env vars | Optional env vars | Provides |
+| --- | --- | --- | --- | --- |
+| `local` | included | none | none | shell + file tools |
+| `daytona` | `pip install "adk-agent-harness[daytona]"` | `DAYTONA_API_KEY` | `DAYTONA_API_URL`, `DAYTONA_TARGET` | shell + file tools |
+| `e2b` | `pip install "adk-agent-harness[e2b]"` | `E2B_API_KEY` | `E2B_DOMAIN` | shell + file tools |
+| `cloud_run` | included | none | `K_SERVICE` | code execution only |
+
+The `daytona` and `e2b` extras just pull the matching `google-adk` extra;
+`adk-agent-harness[sandbox]` installs both.
+
+Notes:
+
+- `local` runs commands as subprocesses of your own process with no isolation.
+  Prefer a remote sandbox for untrusted work.
+- `daytona` and `e2b` accept `api_key` on the config instead of the environment
+  variable; setting it satisfies the credential check.
+- `cloud_run` attaches ADK's `CloudRunSandboxCodeExecutor` rather than file
+  tools. It works only from inside a Cloud Run container deployed with the
+  sandbox launcher (`gcloud beta run deploy --sandbox-launcher`), because it
+  shells out to the guest binary at `/usr/local/gcp/bin/sandbox`.
+- `env_vars` on the config are set *inside* the sandbox; they are not read from
+  your process.
+
+Credentials and optional packages are preflighted while the agent is built, so
+a misconfigured backend raises `SandboxConfigurationError` immediately instead
+of failing on the first tool call:
+
+```python
+from adk_agent_harness import (
+    SandboxConfig,
+    missing_sandbox_requirements,
+    sandbox_requirements_report,
+)
+
+print(sandbox_requirements_report())          # full setup table
+missing_sandbox_requirements(SandboxConfig(kind="e2b"))  # [] when ready
+```
+
+Pass `SandboxConfig(..., validate_environment=False)` to skip the preflight,
+for example when building an agent in CI that will run elsewhere.
+
+### Sharing The Workspace With Subagents
+
+A prebuilt subagent opts in with `use_sandbox=True` and receives the *same*
+workspace as the root agent. Spawned subagents can request it by the registry
+name `environment`.
+
+```python
+from adk_agent_harness import SpawnConfig, SubAgentSpec
+from adk_agent_harness.sandbox import SANDBOX_TOOLSET_NAME
+
+app = create_deep_agent(
+    name="workspace_agent",
+    model_client="gemini-3-flash-preview",
+    instruction="Delegate implementation work.",
+    sandbox="local",
+    subagents=[
+        SubAgentSpec(name="builder", goal="Implement changes.", use_sandbox=True),
+        SubAgentSpec(name="planner", goal="Draft a plan."),
+    ],
+    spawn=SpawnConfig(enabled=True, allowed_tools=[SANDBOX_TOOLSET_NAME]),
+)
+```
 
 ## Tools And MCP
 
@@ -220,7 +345,7 @@ app = create_deep_agent(
 Pass one ADK `SkillToolset` that you construct yourself:
 
 ```python
-from adk_deep_agent import create_deep_agent
+from adk_agent_harness import create_deep_agent
 from google.adk.skills import models
 from google.adk.tools import skill_toolset
 
@@ -248,7 +373,7 @@ Prebuilt subagents use native ADK `sub_agents`. Use this when the developer
 knows the child roles ahead of time.
 
 ```python
-from adk_deep_agent import SubAgentSpec, create_deep_agent
+from adk_agent_harness import SubAgentSpec, create_deep_agent
 
 app = create_deep_agent(
     name="main_agent",
@@ -276,7 +401,7 @@ runtime. Spawned children are still ADK agents and run through
 `ToolContext.run_node(...)`.
 
 ```python
-from adk_deep_agent import ModelSpec, SpawnConfig, create_deep_agent
+from adk_agent_harness import ModelSpec, SpawnConfig, create_deep_agent
 
 
 def inspect_code(path: str) -> str:
@@ -306,7 +431,6 @@ app = create_deep_agent(
         enabled=True,
         tools={"inspect_code": inspect_code},
         allowed_tools=["inspect_code"],
-        default_mode="single_turn",
     ),
 )
 ```
@@ -315,25 +439,66 @@ The root instruction receives only model IDs and descriptive metadata. The
 backend registry retains the actual model clients. `spawn_subagent` accepts an
 optional `model` ID, defaults to the root model, and rejects unknown IDs.
 
-Spawned `task` agents are temporary foreground workers. If one needs user
-clarification, the tool returns `status="waiting_for_user"` so the parent can
-continue explicitly.
+Spawned agents always run in ADK `single_turn` mode, the same way ADK runs a
+`single_turn` subagent: the child runs through `ToolContext.run_node(...)` on a
+sub-branch keyed by the `spawn_subagent` function-call ID, receives `goal` and
+`context` as its request, and returns its result as the tool response. Spawned
+children never interact with the user, so `adk_request_input` is never offered
+to them.
 
-## Event Projection
+### Background Spawned Agents
 
-Raw ADK runner events include subagent activity for prebuilt and spawned
-children. Use `iter_subagent_events(...)` when you want a lightweight stable
-projection for UI code while still retaining each raw ADK event.
+The root agent decides per call whether to wait for a child. With
+`spawn_subagent(..., background=true)` the tool returns
+`{"status": "running", "task_id": ...}` immediately and the root agent keeps
+working. There is nothing to configure.
+
+- The child runs like ADK's `AgentTool` runs an agent: a separate `Runner` over
+  its own in-memory session. No parent state is copied in or merged back, so the
+  child is isolated from the root session.
+- On the root agent's next model request, a `before_model_callback` lists
+  still-running children and injects each finished result (or failure) once.
+  An idle root agent sees the result when the client starts its next turn.
+- Child events do not appear in the root `run_async()` stream. Read the child's
+  raw ADK events, replayed from the start and then live, to translate them into
+  your UI protocol such as AG-UI:
 
 ```python
-from adk_deep_agent import iter_subagent_events
+from adk_agent_harness import stream_background_task_events, wait_for_background_task
 
-projected = iter_subagent_events(
-    raw_events,
-    root_agent_name="main_agent",
-    child_agent_names=["reviewer"],
-)
+async for event in stream_background_task_events(task_id):
+    ...  # raw google.adk Event authored by the child
+
+task = await wait_for_background_task(task_id)  # status, result, error
 ```
+
+`get_background_task`, `list_background_tasks`, and `cancel_background_task`
+are also available. At most four background children run at once per root
+session. Background tasks live in process memory and do not survive a restart.
+
+## Interrupted Tool Calls
+
+A tool call can be left without a result when a run is cancelled or times out
+mid-tool, the process crashes, or the user types instead of answering an
+`adk_request_input` form. ADK still sends that unanswered call to the model, and
+OpenAI, Anthropic, and Gemini reject or misbehave on a call with no result.
+
+`create_deep_agent` always installs `ToolCallRepairPlugin` as the first App
+plugin. Before every model request of every agent, including subagents and
+background children, it inserts a synthetic `{"status": "interrupted"}` result
+after each unanswered call. Only the outgoing request changes; stored session
+history is never modified. If you build your own ADK `App`, add
+`ToolCallRepairPlugin()` to its plugins, or call
+`repair_dangling_tool_calls(llm_request.contents)` from a callback.
+
+## Subagent Events
+
+ADK streams subagent activity as ordinary runner events, so there is no package
+event format to adopt. Prebuilt and foreground spawned children appear in the
+root `run_async()` stream with `event.author` set to the child name and
+`event.branch` set to `<parent>.<child>@<function-call-id>`. Translate them into
+your UI protocol, such as AG-UI, like any other ADK event. Background children
+stream through `stream_background_task_events(task_id)`.
 
 ## Examples
 
@@ -344,6 +509,7 @@ Numbered examples live in `examples/sdk`:
 - `03_thinking_compaction_plugins.py`
 - `04_prebuilt_and_spawned_subagents.py`
 - `05_elicitation_and_model_selection.py`
+- `06_sandbox_and_context_cache.py`
 
 ## GitHub Topics
 
@@ -364,9 +530,9 @@ task-delegation
 ## Development
 
 ```bash
-uv run --extra dev python -m pytest tests/unit
+uv run python -m pytest tests/unit
 uv build
-uv run --extra dev python -m twine check dist/*
+uv run python -m twine check dist/*
 ```
 
 ## Publishing

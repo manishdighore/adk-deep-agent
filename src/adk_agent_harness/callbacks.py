@@ -1,4 +1,4 @@
-"""Root-agent callbacks for adk-deep-agent."""
+"""Root-agent callbacks for adk-agent-harness."""
 
 from __future__ import annotations
 

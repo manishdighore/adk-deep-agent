@@ -5,12 +5,11 @@ from typing import Any
 
 import pytest
 
-from adk_deep_agent import SpawnConfig
-from adk_deep_agent import ModelSpec
-from adk_deep_agent import SubAgentSpec
-from adk_deep_agent import create_deep_agent
-from adk_deep_agent import iter_subagent_events
-from adk_deep_agent.subagents import SPAWN_TOOL_NAME
+from adk_agent_harness import SpawnConfig
+from adk_agent_harness import ModelSpec
+from adk_agent_harness import SubAgentSpec
+from adk_agent_harness import create_deep_agent
+from adk_agent_harness.subagents import SPAWN_TOOL_NAME
 from google.adk.apps.app import App
 from google.adk.events.event import Event
 from google.adk.models import BaseLlm
@@ -153,14 +152,14 @@ async def test_prebuilt_single_turn_child_raw_events_are_streamed() -> None:
 
     events = await _run_app(app)
 
-    assert any(event.author == "researcher" for event in events)
-    projected = iter_subagent_events(
-        events,
-        root_agent_name="root",
-        child_agent_names=["researcher"],
+    child_events = [event for event in events if event.author == "researcher"]
+    assert child_events
+    assert all("researcher@" in (event.branch or "") for event in child_events)
+    assert any(
+        part.text == "child done"
+        for event in child_events
+        for part in (event.content.parts if event.content else [])
     )
-    assert projected
-    assert projected[0].child_agent == "researcher"
 
 
 @pytest.mark.asyncio
@@ -224,11 +223,13 @@ async def test_spawned_single_turn_child_raw_events_are_streamed() -> None:
 
     events = await _run_app(app)
 
-    assert any(event.author == "temp_researcher" for event in events)
-    assert iter_subagent_events(
-        events,
-        root_agent_name="root",
-        child_agent_names=["temp_researcher"],
+    child_events = [event for event in events if event.author == "temp_researcher"]
+    assert child_events
+    assert all("temp_researcher@" in (event.branch or "") for event in child_events)
+    assert any(
+        part.text == "spawned child done"
+        for event in child_events
+        for part in (event.content.parts if event.content else [])
     )
 
 
@@ -345,19 +346,53 @@ async def test_spawn_tool_rejects_unknown_tool_name() -> None:
     assert "unknown tool" in responses[0]["error"]
 
 
+class RecordingModel(FakeModel):
+    requests: list[LlmRequest] = []
+
+    async def generate_content_async(
+        self,
+        llm_request: LlmRequest,
+        stream: bool = False,
+    ) -> AsyncGenerator[LlmResponse, None]:
+        self.requests.append(llm_request)
+        async for response in super().generate_content_async(llm_request, stream):
+            yield response
+
+
+def _spawn_tool(app: App):
+    return next(
+        tool
+        for tool in app.root_agent.tools
+        if getattr(tool, "name", "") == SPAWN_TOOL_NAME
+    )
+
+
+def test_spawn_tool_does_not_expose_a_mode_argument() -> None:
+    app = create_deep_agent(
+        name="root",
+        model_client="gemini-3-flash-preview",
+        instruction="Help.",
+        spawn=SpawnConfig(enabled=True),
+    )
+
+    declaration = _spawn_tool(app)._get_declaration()
+    schema = declaration.parameters_json_schema or {}
+    properties = schema.get("properties") or (
+        declaration.parameters.properties if declaration.parameters else {}
+    )
+    assert "goal" in properties
+    assert "mode" not in properties
+
+
 @pytest.mark.asyncio
-async def test_spawned_task_child_raw_events_are_streamed() -> None:
+async def test_spawned_child_runs_single_turn_on_function_call_branch() -> None:
     root_model = FakeModel(
         responses=[
             _function_call(
                 SPAWN_TOOL_NAME,
-                {
-                    "name": "temp_task_worker",
-                    "goal": "Finish a task.",
-                    "mode": "task",
-                },
+                {"name": "temp_worker", "goal": "Do the work."},
             ),
-            _finish_task({"result": "spawned task done"}),
+            "spawned child done",
             "root done",
         ]
     )
@@ -370,30 +405,42 @@ async def test_spawned_task_child_raw_events_are_streamed() -> None:
 
     events = await _run_app(app)
 
-    child_events = [
-        event for event in events if event.author == "temp_task_worker"
-    ]
-    assert child_events
-    assert any(
-        call.name == "finish_task"
-        for event in child_events
+    spawn_call_id = next(
+        call.id
+        for event in events
         for call in event.get_function_calls()
+        if call.name == SPAWN_TOOL_NAME
     )
+    child_events = [event for event in events if event.author == "temp_worker"]
+    assert child_events
+    assert all(
+        event.branch and event.branch.endswith(f"temp_worker@{spawn_call_id}")
+        for event in child_events
+    )
+    responses = [
+        response.response
+        for event in events
+        for response in event.get_function_responses()
+        if response.name == SPAWN_TOOL_NAME
+    ]
+    assert responses[0]["status"] == "completed"
+    assert responses[0]["result"] == "spawned child done"
 
 
 @pytest.mark.asyncio
-async def test_spawned_task_that_asks_user_returns_waiting_status() -> None:
+async def test_spawned_child_receives_goal_and_context_as_request() -> None:
+    child_model = RecordingModel(requests=[], responses=["child done"])
     root_model = FakeModel(
         responses=[
             _function_call(
                 SPAWN_TOOL_NAME,
                 {
-                    "name": "temp_clarifier",
-                    "goal": "Clarify the task.",
-                    "mode": "task",
+                    "name": "temp_writer",
+                    "goal": "Draft the summary.",
+                    "context": "Audience is the finance team.",
+                    "model": "child",
                 },
             ),
-            "I need one clarification from the user.",
             "root done",
         ]
     )
@@ -401,7 +448,52 @@ async def test_spawned_task_that_asks_user_returns_waiting_status() -> None:
         name="root",
         model_client=root_model,
         instruction="Help.",
+        available_models=[ModelSpec(id="child", model_client=child_model)],
         spawn=SpawnConfig(enabled=True),
+    )
+
+    await _run_app(app)
+
+    request = child_model.requests[0]
+    request_text = "\n".join(
+        part.text
+        for content in request.contents
+        for part in (content.parts or [])
+        if part.text
+    )
+    assert "Goal: Draft the summary." in request_text
+    assert "Audience is the finance team." in request_text
+    instruction = str(request.config.system_instruction)
+    assert "Draft the summary." not in instruction
+    assert "cannot ask the user" in instruction
+
+
+@pytest.mark.asyncio
+async def test_spawned_child_cannot_be_given_request_input() -> None:
+    from google.adk.tools import request_input
+
+    root_model = FakeModel(
+        responses=[
+            _function_call(
+                SPAWN_TOOL_NAME,
+                {
+                    "name": "temp_asker",
+                    "goal": "Ask the user.",
+                    "tool_names": ["adk_request_input"],
+                },
+            ),
+            "root done",
+        ]
+    )
+    app = create_deep_agent(
+        name="root",
+        model_client=root_model,
+        instruction="Help.",
+        elicitation=True,
+        spawn=SpawnConfig(
+            enabled=True,
+            tools={"adk_request_input": request_input},
+        ),
     )
 
     events = await _run_app(app)
@@ -412,6 +504,5 @@ async def test_spawned_task_that_asks_user_returns_waiting_status() -> None:
         for response in event.get_function_responses()
         if response.name == SPAWN_TOOL_NAME
     ]
-    assert responses
-    assert responses[0]["status"] == "waiting_for_user"
-    assert "clarification" in responses[0]["message"]
+    assert responses[0]["status"] == "error"
+    assert "unknown tool" in responses[0]["error"]

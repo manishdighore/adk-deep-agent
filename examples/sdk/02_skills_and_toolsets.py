@@ -4,7 +4,7 @@ The same `tools` argument can also receive ADK BaseTool and BaseToolset values,
 including McpToolset instances.
 """
 
-from adk_deep_agent import create_deep_agent
+from adk_agent_harness import create_deep_agent
 from google.adk.skills import models
 from google.adk.tools import skill_toolset
 

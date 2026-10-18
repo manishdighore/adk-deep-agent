@@ -1,8 +1,8 @@
 from types import SimpleNamespace
 
-from adk_deep_agent.callbacks import guard_multiple_todo_writes
-from adk_deep_agent.callbacks import inject_active_ledger
-from adk_deep_agent.ledger import LEDGER_STATE_KEY
+from adk_agent_harness.callbacks import guard_multiple_todo_writes
+from adk_agent_harness.callbacks import inject_active_ledger
+from adk_agent_harness.ledger import LEDGER_STATE_KEY
 from google.adk.models.llm_request import LlmRequest
 from google.adk.models.llm_response import LlmResponse
 from google.genai import types

@@ -1,9 +1,10 @@
 from collections.abc import AsyncGenerator
 
-from adk_deep_agent import CompactionConfig
-from adk_deep_agent import ThinkingConfig
-from adk_deep_agent import create_deep_agent
-from adk_deep_agent.ledger import TODO_TOOL_NAME
+from adk_agent_harness import CompactionConfig
+from adk_agent_harness import ThinkingConfig
+from adk_agent_harness import create_deep_agent
+from adk_agent_harness.ledger import TODO_TOOL_NAME
+from google.adk.agents.context_cache_config import ContextCacheConfig
 from google.adk.models import BaseLlm
 from google.adk.models.llm_request import LlmRequest
 from google.adk.models.llm_response import LlmResponse
@@ -87,3 +88,38 @@ def test_factory_maps_compaction_config() -> None:
     assert config.overlap_size == 0
     assert config.summarizer is not None
 
+
+
+def test_factory_enables_context_cache_with_adk_defaults() -> None:
+    app = create_deep_agent(
+        name="cached_agent",
+        model_client="gemini-3-flash-preview",
+        instruction="Help.",
+        context_cache=True,
+    )
+
+    assert isinstance(app.context_cache_config, ContextCacheConfig)
+    assert app.context_cache_config.cache_intervals == ContextCacheConfig().cache_intervals
+
+
+def test_factory_passes_through_context_cache_config() -> None:
+    config = ContextCacheConfig(cache_intervals=3, ttl_seconds=600, min_tokens=2048)
+
+    app = create_deep_agent(
+        name="cached_agent",
+        model_client="gemini-3-flash-preview",
+        instruction="Help.",
+        context_cache=config,
+    )
+
+    assert app.context_cache_config is config
+
+
+def test_factory_leaves_context_cache_disabled_by_default() -> None:
+    app = create_deep_agent(
+        name="uncached_agent",
+        model_client="gemini-3-flash-preview",
+        instruction="Help.",
+    )
+
+    assert app.context_cache_config is None

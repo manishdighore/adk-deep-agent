@@ -1,8 +1,8 @@
 """03: Enable thinking, native ADK event compaction, and plugins."""
 
-from adk_deep_agent import CompactionConfig
-from adk_deep_agent import ThinkingConfig
-from adk_deep_agent import create_deep_agent
+from adk_agent_harness import CompactionConfig
+from adk_agent_harness import ThinkingConfig
+from adk_agent_harness import create_deep_agent
 from google.adk.plugins.base_plugin import BasePlugin
 
 
