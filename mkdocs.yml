@@ -8,6 +8,7 @@ copyright: MIT License
 
 theme:
   name: material
+  variant: modern
   logo: assets/icon.svg
   favicon: assets/icon.svg
   palette:

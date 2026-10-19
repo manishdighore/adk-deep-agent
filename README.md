@@ -191,7 +191,7 @@ elicitation and model selection, and sandboxes.
 ```bash
 uv sync                              # dev tools included
 uv run python -m pytest tests/unit
-uv sync --group docs && uv run mkdocs serve   # docs at http://127.0.0.1:8000
+uv sync --group docs && uv run zensical serve   # docs at http://localhost:8000
 ```
 
 Releases: see
